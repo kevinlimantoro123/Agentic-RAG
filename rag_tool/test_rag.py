@@ -123,9 +123,6 @@ def retrieve_text_chunks(
     # Build the WHERE clause dynamically
     params = {"slug": slug, "qtxt": query}
 
-    if patient == None:
-        return []
-
     if patient:
         filters.append("LOWER(Patient) LIKE :pname")
         params["pname"] = f"%{patient.lower()}%"
@@ -145,8 +142,11 @@ def retrieve_text_chunks(
 
     where_sql = ("WHERE " + " AND ".join(filters)) if filters else ""
 
+    # No DISTINCT: IRIS's optimizer uses the HNSW index only when the query is
+    # a plain TOP-k ORDER BY VECTOR_DOT_PRODUCT pattern. Deduplication is done
+    # in Python below.
     sql = sql_text(f"""
-        SELECT DISTINCT TOP {top_k} VisitDate, Description
+        SELECT TOP {top_k} VisitDate, Description
           FROM Embedding.Clinical
          {where_sql}
          ORDER BY VECTOR_DOT_PRODUCT(
