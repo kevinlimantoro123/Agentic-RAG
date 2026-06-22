@@ -24,6 +24,16 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+import os as _os
+
+_TESSERACT_EXE = r"C:\Users\klimanto\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+# Make sure both the plain pytesseract and unstructured's vendored copy can find it
+_os.environ["PATH"] = _os.path.dirname(_TESSERACT_EXE) + _os.pathsep + _os.environ.get("PATH", "")
+import pytesseract
+pytesseract.pytesseract.tesseract_cmd = _TESSERACT_EXE
+import unstructured_pytesseract
+unstructured_pytesseract.pytesseract.tesseract_cmd = _TESSERACT_EXE
+
 from unstructured.documents.elements import (
     Element,
     Image,
