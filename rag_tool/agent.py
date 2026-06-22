@@ -130,6 +130,7 @@ def run_agent(
     pdf: str,
     patient: str | None = None,
     visit_date: str | None = None,
+    resource: str | None = None,
     top_k: int = 5,
     max_iterations: int = 10,
 ) -> tuple[str, list[dict]]:
@@ -145,6 +146,11 @@ def run_agent(
         context_note += f" | Patient filter: {patient}"
     if visit_date:
         context_note += f" | Date filter: {visit_date}"
+    if resource:
+        context_note += (
+            f" | Preferred guideline source: {resource} "
+            "(prefer this source for guideline_search unless another is clearly more appropriate)"
+        )
 
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -199,6 +205,7 @@ def run_agent_streaming(
     pdf: str,
     patient: str | None = None,
     visit_date: str | None = None,
+    resource: str | None = None,
     top_k: int = 5,
     max_iterations: int = 10,
 ) -> Generator[dict, None, None]:
@@ -216,6 +223,11 @@ def run_agent_streaming(
         context_note += f" | Patient filter: {patient}"
     if visit_date:
         context_note += f" | Date filter: {visit_date}"
+    if resource:
+        context_note += (
+            f" | Preferred guideline source: {resource} "
+            "(prefer this source for guideline_search unless another is clearly more appropriate)"
+        )
 
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT},

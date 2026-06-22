@@ -2,12 +2,12 @@ import streamlit as st
 from pathlib import Path
 from rag_tool.agent import run_agent_streaming
 from rag_tool.test_rag import reset
-from pipeline.precheck import ensure_meta_table, check_duplicate, record_metadata
-from pipeline.extractor import Extractor
-from pipeline.cleaner import organize_and_clean_by_section
-from pipeline.chunker import main as chunk_markdown
-from pipeline.loader import load_chunks_to_iris
 from pipeline.utils import get_patient_list, get_pdf_list
+
+# NOTE: the PDF-processing modules (extractor/chunker/cleaner/loader/precheck)
+# pull in unstructured + langchain splitters (~25s to import). They are only
+# needed when a PDF is actually uploaded, so they are imported lazily inside the
+# upload handler below — this keeps the UI's first paint fast.
 
 st.set_page_config(page_title="Clinical AI Assistant", layout="wide")
 st.title("📄→🧠 Clinical PDF → RAG Pipeline")
@@ -26,6 +26,13 @@ if "slug" not in st.session_state:
 # ── STEP 1: PDF upload ──────────────────────────────────────────────────────
 uploaded = st.file_uploader("Upload clinical PDF", type="pdf")
 if uploaded:
+    # Lazy imports (heavy: unstructured, langchain) — only loaded when processing a PDF.
+    from pipeline.precheck import ensure_meta_table, check_duplicate, record_metadata
+    from pipeline.extractor import Extractor
+    from pipeline.cleaner import organize_and_clean_by_section
+    from pipeline.chunker import main as chunk_markdown
+    from pipeline.loader import load_chunks_to_iris
+
     slug    = Path(uploaded.name).stem
     out_dir = Path("data") / slug
     out_dir.mkdir(exist_ok=True, parents=True)
@@ -121,6 +128,7 @@ if st.button("Run Agent"):
                 pdf=pdf,
                 patient=patient or None,
                 visit_date=visit_date or None,
+                resource=resource or None,
                 top_k=top_k,
             ):
                 if event["type"] == "tool_start":

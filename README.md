@@ -21,8 +21,7 @@ authoritative medical guidelines — looping until it can answer with citations.
   - [4. Create the SSL config](#4-create-the-ssl-config-for-openai-calls)
   - [5. Configure environment variables](#5-configure-environment-variables)
   - [6. Register the embedding config](#6-register-the-embedding-config)
-  - [7. Create the Reset stored procedure](#7-create-the-reset-stored-procedure)
-  - [8. Tesseract OCR path](#8-tesseract-ocr-path)
+  - [7. Tesseract OCR path](#7-tesseract-ocr-path)
 - [Running the app](#running-the-app)
 - [How it works](#how-it-works)
 - [Project structure](#project-structure)
@@ -181,27 +180,17 @@ Registered embedding configs:
    bge-base-config | %Embedding.OpenAI | dim 1536
 ```
 
-### 7. Create the Reset stored procedure
+> The UI's **Reset Database** button clears the tables directly via `DELETE` (see
+> `reset()` in `rag_tool/test_rag.py`) — no stored procedure setup is required.
 
-The UI's **Reset Database** button calls `Embedding.Reset()`. Create it in the Management
-Portal → **System Explorer → SQL** (namespace `RAG`):
+### 7. Tesseract OCR path
 
-```sql
-CREATE OR REPLACE PROCEDURE Embedding.Reset()
-LANGUAGE OBJECTSCRIPT
-{
-    do ##class(%SQL.Statement).%ExecDirect(,"DELETE FROM Embedding.Clinical")
-    do ##class(%SQL.Statement).%ExecDirect(,"DELETE FROM Embedding.DocumentMeta")
-}
-```
+`pipeline/extractor.py` locates the Tesseract binary automatically: it checks the
+`TESSERACT_CMD` env var first, then your system `PATH`, then common install locations. In
+most cases no action is needed. If auto-detection fails, set the env var, e.g.:
 
-### 8. Tesseract OCR path
-
-`pipeline/extractor.py` points `pytesseract` at the Tesseract binary explicitly. Update the
-path near the top of that file to match your install, e.g.:
-
-```python
-_TESSERACT_EXE = r"C:\Users\<you>\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+```env
+TESSERACT_CMD=C:\Users\<you>\AppData\Local\Programs\Tesseract-OCR\tesseract.exe
 ```
 
 (Install via `winget install UB-Mannheim.TesseractOCR`.)
@@ -317,12 +306,12 @@ Agentic-RAG/
 | Symptom | Cause / fix |
 |---|---|
 | `ModuleNotFoundError: No module named 'rag_tool'` | Run from the project root, or add a `.pth` with the root path to `venv/.../site-packages`. |
-| `TesseractNotFoundError` | Install Tesseract and set `_TESSERACT_EXE` in `pipeline/extractor.py`. |
+| `TesseractNotFoundError` | Set `TESSERACT_CMD` in `.env` (or install Tesseract on PATH). |
 | `pdf2image` / Poppler errors | Install Poppler and ensure its `bin` is on PATH. |
 | `numpy` fails to build during `pip install` | Use a Python version with prebuilt wheels, or `pip install numpy --only-binary :all:`. |
 | `Embedding configuration bge-base-config ... is not defined` | Run `setup_embedding_config.py` against the `RAG` namespace. |
-| `<COMMUNICATION LINK ERROR>` on insert | The embedding call failed server-side — verify the `llm_ssl` SSL config exists and `OPENAI_API_KEY` is valid. |
-| `Embedding.Reset not found` | Create the stored procedure (setup step 7). |
+| `<COMMUNICATION LINK ERROR>` on insert/embedding | The embedding call failed server-side — verify the `llm_ssl` SSL config exists and `OPENAI_API_KEY` is valid. |
+| `Unable to allocate a license` (connection refused) | IRIS Community caps concurrent connections. Close extra clients or `docker restart iris-rag` to clear stale slots. |
 | IRIS won't start after recreate / CPF parse error | Stale volume from an older image. Remove the volume and recreate (you'll need to redo namespace + config setup). |
 
 ---
@@ -337,5 +326,5 @@ Agentic-RAG/
 - **Clinical text is sent to OpenAI** for both embedding and answering. Use only with data
   you're authorized to send to a third-party API.
 - **Recovery after losing the volume:** recreate the `llm_ssl` SSL config (step 4), re-run
-  `setup_embedding_config.py` (step 6), recreate the Reset procedure (step 7), then re-upload
-  your PDFs. Host-side files (`.env`, code, `venv`) are unaffected.
+  `setup_embedding_config.py` (step 6), then re-upload your PDFs. Host-side files (`.env`,
+  code, `venv`) are unaffected.

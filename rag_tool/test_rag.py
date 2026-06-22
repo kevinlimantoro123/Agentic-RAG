@@ -17,6 +17,7 @@ import re
 from dotenv import load_dotenv
 from langchain_tavily import TavilySearch
 from sqlalchemy import create_engine, text as sql_text
+from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()  # reads .env in the current working dir
 
@@ -37,9 +38,20 @@ RESOURCE_DOMAINS = {
 
 
 def reset() -> None:
-    sql = sql_text("CALL Embedding.Reset()")
-    with engine.connect() as conn, conn.begin():
-        conn.execute(sql)
+    """Clear all loaded data.
+
+    Runs the DELETEs directly rather than via a stored procedure — the
+    Embedding.Reset() proc crashed the SQL connection, while plain DELETEs are
+    instant and reliable. Each table is cleared independently so a fresh DB
+    (where a table may not exist yet) doesn't error.
+    """
+    for tbl in ("Embedding.Clinical", "Embedding.DocumentMeta"):
+        try:
+            with engine.connect() as conn, conn.begin():
+                conn.execute(sql_text(f"DELETE FROM {tbl}"))
+        except SQLAlchemyError:
+            # Table doesn't exist yet (nothing loaded) — nothing to clear.
+            pass
 
 
 # ---------- Guideline / Web Search ----------
@@ -98,8 +110,9 @@ def retrieve_text_chunks(
     visit_date: str | None = None,
 ) -> list[dict]:
 
+    query = (query or "").strip()
     filters = ["PDF = :slug"]           # always filter by this PDF
-    params = {"slug": slug, "qtxt": query}
+    params = {"slug": slug}
 
     if patient:
         filters.append("LOWER(Patient) LIKE :pname")
@@ -120,17 +133,25 @@ def retrieve_text_chunks(
 
     where_sql = ("WHERE " + " AND ".join(filters)) if filters else ""
 
-    # No DISTINCT: IRIS's optimizer uses the HNSW index only when the query is
-    # a plain TOP-k ORDER BY VECTOR_DOT_PRODUCT pattern. Deduplication is done
-    # in Python below.
+    if query:
+        # Semantic ranking via vector search. No DISTINCT: IRIS's optimizer uses
+        # the HNSW index only for a plain TOP-k ORDER BY VECTOR_DOT_PRODUCT
+        # pattern. Deduplication is done in Python below.
+        params["qtxt"] = query
+        order_sql = """ORDER BY VECTOR_DOT_PRODUCT(
+                  DescriptionEmbedding,
+                  EMBEDDING(:qtxt, 'bge-base-config')
+                ) DESC"""
+    else:
+        # No search text (e.g. "list this patient's records") — passing '' to
+        # EMBEDDING is a fatal error in IRIS, so fall back to recency ordering.
+        order_sql = "ORDER BY VisitDate DESC"
+
     sql = sql_text(f"""
         SELECT TOP {top_k} VisitDate, Description
           FROM Embedding.Clinical
          {where_sql}
-         ORDER BY VECTOR_DOT_PRODUCT(
-                  DescriptionEmbedding,
-                  EMBEDDING(:qtxt, 'bge-base-config')
-                ) DESC
+         {order_sql}
     """)
     with engine.connect() as conn, conn.begin():
         rows = conn.execute(sql, params).fetchall()

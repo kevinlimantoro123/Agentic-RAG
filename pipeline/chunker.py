@@ -141,12 +141,6 @@ def main(pdf_slug: str):
     OUT_PATH = DATA_DIR / pdf_slug / "chunks.json"
     raw = MD_PATH.read_text(encoding="utf-8")
     markdown_text = merge_consecutive_headers(raw)
-
-
-        # DEBUG
-    with open("merged_output.md", "w", encoding="utf-8") as f:
-        f.write(markdown_text)
-    print("✅ Saved merged markdown for verification.")
     # Step 2: Split into sections by headers (h1, h2, h3)
     header_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on=HEADER_LEVELS,
