@@ -19,22 +19,49 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-import os as _os
 
-_TESSERACT_EXE = r"C:\Users\klimanto\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
-# Make sure both the plain pytesseract and unstructured's vendored copy can find it
-_os.environ["PATH"] = _os.path.dirname(_TESSERACT_EXE) + _os.pathsep + _os.environ.get("PATH", "")
-import pytesseract
-pytesseract.pytesseract.tesseract_cmd = _TESSERACT_EXE
-import unstructured_pytesseract
-unstructured_pytesseract.pytesseract.tesseract_cmd = _TESSERACT_EXE
+def _locate_tesseract() -> str | None:
+    """Find the Tesseract binary without a hard-coded, machine-specific path.
 
-from unstructured.documents.elements import (
+    Priority: TESSERACT_CMD env var -> system PATH -> common install locations.
+    Returns None if not found (extraction with the default "fast" path still
+    works; only OCR / hi_res needs Tesseract).
+    """
+    explicit = os.environ.get("TESSERACT_CMD")
+    if explicit and Path(explicit).exists():
+        return explicit
+    found = shutil.which("tesseract")
+    if found:
+        return found
+    for candidate in (
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe"),
+        "/usr/bin/tesseract",
+        "/usr/local/bin/tesseract",
+        "/opt/homebrew/bin/tesseract",
+    ):
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+_TESSERACT_EXE = _locate_tesseract()
+if _TESSERACT_EXE:
+    # Point both pytesseract and unstructured's vendored copy at the binary,
+    # and make sure its directory is on PATH for the current process.
+    os.environ["PATH"] = os.path.dirname(_TESSERACT_EXE) + os.pathsep + os.environ.get("PATH", "")
+    import pytesseract
+    pytesseract.pytesseract.tesseract_cmd = _TESSERACT_EXE
+    import unstructured_pytesseract
+    unstructured_pytesseract.pytesseract.tesseract_cmd = _TESSERACT_EXE
+
+from unstructured.documents.elements import (  # noqa: E402
     Element,
     Image,
     ListItem,

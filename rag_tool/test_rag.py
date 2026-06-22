@@ -17,6 +17,7 @@ import re
 from dotenv import load_dotenv
 from langchain_tavily import TavilySearch
 from sqlalchemy import create_engine, text as sql_text
+from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()  # reads .env in the current working dir
 
@@ -37,9 +38,20 @@ RESOURCE_DOMAINS = {
 
 
 def reset() -> None:
-    sql = sql_text("CALL Embedding.Reset()")
-    with engine.connect() as conn, conn.begin():
-        conn.execute(sql)
+    """Clear all loaded data.
+
+    Runs the DELETEs directly rather than via a stored procedure — the
+    Embedding.Reset() proc crashed the SQL connection, while plain DELETEs are
+    instant and reliable. Each table is cleared independently so a fresh DB
+    (where a table may not exist yet) doesn't error.
+    """
+    for tbl in ("Embedding.Clinical", "Embedding.DocumentMeta"):
+        try:
+            with engine.connect() as conn, conn.begin():
+                conn.execute(sql_text(f"DELETE FROM {tbl}"))
+        except SQLAlchemyError:
+            # Table doesn't exist yet (nothing loaded) — nothing to clear.
+            pass
 
 
 # ---------- Guideline / Web Search ----------
