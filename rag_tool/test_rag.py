@@ -140,7 +140,7 @@ def retrieve_text_chunks(
         params["qtxt"] = query
         order_sql = """ORDER BY VECTOR_DOT_PRODUCT(
                   DescriptionEmbedding,
-                  EMBEDDING(:qtxt, 'bge-base-config')
+                  EMBEDDING(:qtxt, 'openai-embedding-config')
                 ) DESC"""
     else:
         # No search text (e.g. "list this patient's records") — passing '' to

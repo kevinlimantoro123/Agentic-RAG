@@ -168,7 +168,7 @@ IRIS_CONN_STR=iris://superuser:sys@localhost:1972/RAG
 ### 6. Register the embedding config
 
 This registers the embedding model IRIS uses for the `EMBEDDING(...)` columns. It is named
-`bge-base-config` (kept for code compatibility) but points at OpenAI:
+`openai-embedding-config` (kept for code compatibility) but points at OpenAI:
 
 ```powershell
 .\venv\Scripts\python.exe setup_embedding_config.py
@@ -177,7 +177,7 @@ This registers the embedding model IRIS uses for the `EMBEDDING(...)` columns. I
 Expected output:
 ```
 Registered embedding configs:
-   bge-base-config | %Embedding.OpenAI | dim 1536
+   openai-embedding-config | %Embedding.OpenAI | dim 1536
 ```
 
 > The UI's **Reset Database** button clears the tables directly via `DELETE` (see
@@ -309,7 +309,7 @@ Agentic-RAG/
 | `TesseractNotFoundError` | Set `TESSERACT_CMD` in `.env` (or install Tesseract on PATH). |
 | `pdf2image` / Poppler errors | Install Poppler and ensure its `bin` is on PATH. |
 | `numpy` fails to build during `pip install` | Use a Python version with prebuilt wheels, or `pip install numpy --only-binary :all:`. |
-| `Embedding configuration bge-base-config ... is not defined` | Run `setup_embedding_config.py` against the `RAG` namespace. |
+| `Embedding configuration openai-embedding-config ... is not defined` | Run `setup_embedding_config.py` against the `RAG` namespace. |
 | `<COMMUNICATION LINK ERROR>` on insert/embedding | The embedding call failed server-side — verify the `llm_ssl` SSL config exists and `OPENAI_API_KEY` is valid. |
 | `Unable to allocate a license` (connection refused) | IRIS Community caps concurrent connections. Close extra clients or `docker restart iris-rag` to clear stale slots. |
 | IRIS won't start after recreate / CPF parse error | Stale volume from an older image. Remove the volume and recreate (you'll need to redo namespace + config setup). |
@@ -318,7 +318,7 @@ Agentic-RAG/
 
 ## Notes & caveats
 
-- **`bge-base-config` is a label, not the model.** The project originally used a local BGE
+- **`openai-embedding-config` is a label, not the model.** The project originally used a local BGE
   SentenceTransformers model, but loading torch inside the IRIS process caused segfaults, so
   embeddings were switched to OpenAI `text-embedding-3-small`. The config name was kept so no
   application code needed to change. Rename it across `loader.py`, `test_rag.py`, and

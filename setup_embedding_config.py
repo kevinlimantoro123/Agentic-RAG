@@ -3,8 +3,7 @@
 Uses OpenAI's text-embedding-3-small via IRIS %Embedding.OpenAI so the model
 runs as an HTTPS API call (no local torch loaded into the IRIS process).
 
-The config NAME stays 'bge-base-config' so no application code needs to change
-(loader.py and test_rag.py reference the config by that name).
+The config is registered as 'openai-embedding-config' in loader.py and test_rag.py.
 
 Run once with the project venv:
     venv/Scripts/python.exe setup_embedding_config.py
@@ -30,12 +29,12 @@ config = {
 }
 
 with engine.begin() as conn:
-    conn.execute(text("DELETE FROM %Embedding.Config WHERE Name = 'bge-base-config'"))
+    conn.execute(text("DELETE FROM %Embedding.Config WHERE Name = 'openai-embedding-config'"))
     conn.execute(
         text(
             "INSERT INTO %Embedding.Config "
             "(Name, Configuration, EmbeddingClass, VectorLength, Description) "
-            "VALUES ('bge-base-config', :cfg, '%Embedding.OpenAI', 1536, "
+            "VALUES ('openai-embedding-config', :cfg, '%Embedding.OpenAI', 1536, "
             "'OpenAI text-embedding-3-small')"
         ),
         {"cfg": json.dumps(config)},
