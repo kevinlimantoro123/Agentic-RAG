@@ -110,8 +110,9 @@ def retrieve_text_chunks(
     visit_date: str | None = None,
 ) -> list[dict]:
 
+    query = (query or "").strip()
     filters = ["PDF = :slug"]           # always filter by this PDF
-    params = {"slug": slug, "qtxt": query}
+    params = {"slug": slug}
 
     if patient:
         filters.append("LOWER(Patient) LIKE :pname")
@@ -132,17 +133,25 @@ def retrieve_text_chunks(
 
     where_sql = ("WHERE " + " AND ".join(filters)) if filters else ""
 
-    # No DISTINCT: IRIS's optimizer uses the HNSW index only when the query is
-    # a plain TOP-k ORDER BY VECTOR_DOT_PRODUCT pattern. Deduplication is done
-    # in Python below.
+    if query:
+        # Semantic ranking via vector search. No DISTINCT: IRIS's optimizer uses
+        # the HNSW index only for a plain TOP-k ORDER BY VECTOR_DOT_PRODUCT
+        # pattern. Deduplication is done in Python below.
+        params["qtxt"] = query
+        order_sql = """ORDER BY VECTOR_DOT_PRODUCT(
+                  DescriptionEmbedding,
+                  EMBEDDING(:qtxt, 'bge-base-config')
+                ) DESC"""
+    else:
+        # No search text (e.g. "list this patient's records") — passing '' to
+        # EMBEDDING is a fatal error in IRIS, so fall back to recency ordering.
+        order_sql = "ORDER BY VisitDate DESC"
+
     sql = sql_text(f"""
         SELECT TOP {top_k} VisitDate, Description
           FROM Embedding.Clinical
          {where_sql}
-         ORDER BY VECTOR_DOT_PRODUCT(
-                  DescriptionEmbedding,
-                  EMBEDDING(:qtxt, 'bge-base-config')
-                ) DESC
+         {order_sql}
     """)
     with engine.connect() as conn, conn.begin():
         rows = conn.execute(sql, params).fetchall()
