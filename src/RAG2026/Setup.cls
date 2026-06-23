@@ -53,13 +53,15 @@ ClassMethod EnsureSSL(pName As %String) As %Status
 ClassMethod RegisterEmbeddingConfig(pOpenAIKey As %String, pSSLConfig As %String, pConfigName As %String) As %Status [ Language = python ]
 {
     import iris, json
-    cfg = {"apiKey": pOpenAIKey, "sslConfig": pSSLConfig, "modelName": "text-embedding-3-small"}
-    iris.sql.exec("DELETE FROM %Embedding.Config WHERE Name = ?", pConfigName)
+    # Inline (single-quote escaped) SQL. The parameterized form of this INSERT
+    # raised a SQLError against %Embedding.Config, while the inline form works.
+    cfg = json.dumps({"apiKey": pOpenAIKey, "sslConfig": pSSLConfig, "modelName": "text-embedding-3-small"})
+    name = pConfigName.replace("'", "''")
+    cfgesc = cfg.replace("'", "''")
+    iris.sql.exec("DELETE FROM %Embedding.Config WHERE Name = '" + name + "'")
     iris.sql.exec(
-        "INSERT INTO %Embedding.Config "
-        "(Name, Configuration, EmbeddingClass, VectorLength, Description) "
-        "VALUES (?, ?, '%Embedding.OpenAI', 1536, 'OpenAI text-embedding-3-small')",
-        pConfigName, json.dumps(cfg),
+        "INSERT INTO %Embedding.Config (Name, Configuration, EmbeddingClass, VectorLength, Description) "
+        "VALUES ('" + name + "', '" + cfgesc + "', '%Embedding.OpenAI', 1536, 'OpenAI text-embedding-3-small')"
     )
     return 1
 }
