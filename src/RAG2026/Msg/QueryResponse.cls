@@ -1,0 +1,11 @@
+/// Final answer + tool-call log returned by RAG2026.BP.AgentProcess.
+Class RAG2026.Msg.QueryResponse Extends Ens.Response
+{
+
+/// Synthesised, cited answer.
+Property Answer As %String(MAXLEN = "");
+
+/// JSON array of {tool, args, result} entries for UI display.
+Property ToolLog As %String(MAXLEN = "");
+
+}
