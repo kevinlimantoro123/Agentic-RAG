@@ -33,7 +33,7 @@ XData ProductionDefinition
   <Item Name="Prepare Operation" ClassName="RAG2026.BO.PrepareOperation" Category="Ingest" PoolSize="1" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">
     <Setting Target="Host" Name="SidecarURL">http://127.0.0.1:8800/prepare</Setting>
     <Setting Target="Host" Name="WorkDir">/opt/app/data/</Setting>
-    <Setting Target="Host" Name="RequestTimeout">600</Setting>
+    <Setting Target="Host" Name="RequestTimeout">0</Setting>
   </Item>
   <Item Name="Load Operation" ClassName="RAG2026.BO.LoadOperation" Category="Ingest" PoolSize="1" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">
     <Setting Target="Host" Name="EmbeddingConfig">openai-embedding-config</Setting>

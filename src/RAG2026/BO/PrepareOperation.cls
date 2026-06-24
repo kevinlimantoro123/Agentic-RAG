@@ -57,7 +57,12 @@ Method Prepare(pSlug As %String, pPdfB64 As %String, pWorkDir As %String, pUrl A
             f.write(base64.b64decode(pPdfB64))
 
     payload = {"slug": pSlug, "pdf_path": pdf_path, "work_dir": pWorkDir}
-    r = requests.post(pUrl, json=payload, timeout=int(pTimeout))
+    # Short connect timeout (fail fast if the sidecar is down) + long read
+    # timeout so a huge PDF's extraction doesn't trip a ReadTimeout. A
+    # RequestTimeout of 0 (or less) means "no read limit" -- wait indefinitely.
+    read_timeout = int(pTimeout)
+    timeout = (30, read_timeout if read_timeout > 0 else None)
+    r = requests.post(pUrl, json=payload, timeout=timeout)
     r.raise_for_status()
     data = r.json()
 
