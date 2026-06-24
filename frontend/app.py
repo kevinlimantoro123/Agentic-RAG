@@ -14,6 +14,9 @@ Config via env (or .env):
 
 import base64
 import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import requests
@@ -26,6 +29,14 @@ IRIS_REST_URL = os.getenv("IRIS_REST_URL", "http://localhost:52773/csp/rag2026")
 IRIS_USER = os.getenv("IRIS_USER", "SuperUser")
 IRIS_PASSWORD = os.getenv("IRIS_PASSWORD", "SYS")
 AUTH = (IRIS_USER, IRIS_PASSWORD)
+
+# ── Extractor sidecar (auto-started below) ───────────────────────────────────
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SIDECAR_HOST = os.getenv("SIDECAR_HOST", "127.0.0.1")
+SIDECAR_PORT = int(os.getenv("SIDECAR_PORT", "8800"))
+SIDECAR_STRATEGY = os.getenv("SIDECAR_STRATEGY", "fast")
+SIDECAR_HEALTH = f"http://{SIDECAR_HOST}:{SIDECAR_PORT}/health"
+AUTOSTART_SIDECAR = os.getenv("AUTOSTART_SIDECAR", "1") == "1"
 
 
 def iris_get(path: str, params: dict | None = None, timeout: int = 30):
@@ -47,9 +58,57 @@ def fetch_list(path: str, key: str, params: dict | None = None) -> list:
     return []
 
 
+@st.cache_resource(show_spinner=False)
+def ensure_sidecar() -> str:
+    """Start the extractor sidecar once per Streamlit server process (idempotent).
+
+    Runs only when it isn't already reachable, so manually-started sidecars and
+    Streamlit reruns never spawn duplicates. Logs go to <repo>/sidecar.log.
+    """
+    try:
+        if requests.get(SIDECAR_HEALTH, timeout=2).status_code == 200:
+            return "already running"
+    except requests.RequestException:
+        pass
+
+    env = os.environ.copy()
+    env["SIDECAR_STRATEGY"] = SIDECAR_STRATEGY
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
+
+    try:
+        logfile = open(REPO_ROOT / "sidecar.log", "a", encoding="utf-8")
+        subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "sidecar.extract_service:app",
+             "--host", SIDECAR_HOST, "--port", str(SIDECAR_PORT)],
+            cwd=str(REPO_ROOT),
+            env=env,
+            stdout=logfile,
+            stderr=logfile,
+            creationflags=creationflags,
+        )
+    except Exception as e:  # noqa: BLE001
+        return f"failed to launch: {e}"
+
+    # First launch imports unstructured/torch — that's slow, so poll briefly.
+    for _ in range(24):
+        time.sleep(0.5)
+        try:
+            if requests.get(SIDECAR_HEALTH, timeout=2).status_code == 200:
+                return "started"
+        except requests.RequestException:
+            continue
+    return "starting (first launch is slow — see sidecar.log)"
+
+
 st.set_page_config(page_title="Agentic Clinical RAG (IRIS)", layout="wide")
 st.title("📄→🧠 Agentic Clinical RAG — IRIS Interoperability")
 st.caption(f"Thin client → {IRIS_REST_URL}")
+
+if AUTOSTART_SIDECAR:
+    _sidecar_status = ensure_sidecar()
+    st.caption(f"Extractor sidecar @ {SIDECAR_HOST}:{SIDECAR_PORT} — {_sidecar_status}")
 
 if "slug" not in st.session_state:
     st.session_state["slug"] = ""
@@ -61,18 +120,49 @@ if uploaded is not None:
     st.write(f"Slug: `{slug}`")
     if st.button("⬆️ Ingest into IRIS"):
         pdf_b64 = base64.b64encode(uploaded.getvalue()).decode("ascii")
-        with st.spinner("Ingesting via IRIS (extract → clean → chunk → load)…"):
-            try:
-                resp = iris_post("/ingest", {"slug": slug, "pdf_base64": pdf_b64}, timeout=900)
-            except requests.RequestException as e:
-                st.error(f"Request to IRIS failed: {e}")
-            else:
-                if resp.status_code == 200:
-                    data = resp.json()
-                    st.session_state["slug"] = data.get("slug", slug)
-                    st.success(f"✅ Loaded {data.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
-                else:
-                    st.error(f"Ingest failed ({resp.status_code}): {resp.text}")
+        # 1) Queue the job (returns immediately with a job id).
+        try:
+            resp = iris_post("/ingest", {"slug": slug, "pdf_base64": pdf_b64}, timeout=60)
+        except requests.RequestException as e:
+            st.error(f"Request to IRIS failed: {e}")
+            resp = None
+
+        if resp is not None and resp.status_code != 200:
+            st.error(f"Ingest failed to start ({resp.status_code}): {resp.text}")
+        elif resp is not None:
+            job_id = resp.json().get("job_id")
+            # 2) Poll for completion (no long HTTP request to time out).
+            status_box = st.empty()
+            done = False
+            with st.spinner("Ingesting via IRIS (extract → clean → chunk → load)…"):
+                for _ in range(600):  # up to ~20 min at 2s intervals
+                    time.sleep(2)
+                    try:
+                        s = iris_get("/ingest/status", params={"id": job_id})
+                    except requests.RequestException as e:
+                        status_box.warning(f"status check failed: {e}")
+                        continue
+                    if s.status_code != 200:
+                        status_box.warning(f"status check returned {s.status_code}")
+                        continue
+                    d = s.json()
+                    state = d.get("status")
+                    status_box.info(f"Status: {state}")
+                    if state == "Done":
+                        st.session_state["slug"] = d.get("slug", slug)
+                        st.success(f"✅ Loaded {d.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
+                        done = True
+                        break
+                    if state == "Error":
+                        st.error(f"Ingest error: {d.get('error', '(no detail)')}")
+                        done = True
+                        break
+                    if state == "NotFound":
+                        st.error("Ingest job not found.")
+                        done = True
+                        break
+            if not done:
+                st.warning("Still running after the wait window — check the production Visual Trace / sidecar.log.")
 
 # ── Sidebar: query filters ───────────────────────────────────────────────────
 with st.sidebar:
