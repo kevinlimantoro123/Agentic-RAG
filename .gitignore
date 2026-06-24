@@ -6,3 +6,4 @@
 .claude
 venv
 .vscode
+sidecar.log
