@@ -4,3 +4,5 @@
 *.pyo
 data
 .claude
+venv
+.vscode

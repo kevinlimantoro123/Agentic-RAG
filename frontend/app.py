@@ -1,102 +1,98 @@
-import streamlit as st
+"""
+Thin Streamlit client for the RAG2026 IRIS production.
+
+This UI does NO processing itself — it just calls the IRIS REST endpoints:
+  POST /ingest  {slug, pdf_base64}            -> Ingest Service -> Ingest Process
+  POST /query   {question, pdf, patient, ...} -> Query Service  -> Agent Process
+  GET  /health
+
+Config via env (or .env):
+  IRIS_REST_URL   default http://localhost:52773/csp/rag2026
+  IRIS_USER       default SuperUser
+  IRIS_PASSWORD   default SYS
+"""
+
+import base64
+import os
 from pathlib import Path
-from rag_tool.agent import run_agent_streaming
-from rag_tool.test_rag import reset
-from pipeline.utils import get_patient_list, get_pdf_list
 
-# NOTE: the PDF-processing modules (extractor/chunker/cleaner/loader/precheck)
-# pull in unstructured + langchain splitters (~25s to import). They are only
-# needed when a PDF is actually uploaded, so they are imported lazily inside the
-# upload handler below — this keeps the UI's first paint fast.
+import requests
+import streamlit as st
+from dotenv import load_dotenv
 
-st.set_page_config(page_title="Clinical AI Assistant", layout="wide")
-st.title("📄→🧠 Clinical PDF → RAG Pipeline")
-st.markdown(
-    """
-    <style>
-      .stExpanderHeader { font-size: 1.1em; font-weight: bold; }
-      .citation { color: #555; font-size: 0.9em; }
-    </style>
-    """, unsafe_allow_html=True
-)
+load_dotenv()
+
+IRIS_REST_URL = os.getenv("IRIS_REST_URL", "http://localhost:52773/csp/rag2026").rstrip("/")
+IRIS_USER = os.getenv("IRIS_USER", "SuperUser")
+IRIS_PASSWORD = os.getenv("IRIS_PASSWORD", "SYS")
+AUTH = (IRIS_USER, IRIS_PASSWORD)
+
+
+def iris_get(path: str, params: dict | None = None, timeout: int = 30):
+    return requests.get(f"{IRIS_REST_URL}{path}", auth=AUTH, params=params, timeout=timeout)
+
+
+def iris_post(path: str, payload: dict, timeout: int):
+    return requests.post(f"{IRIS_REST_URL}{path}", json=payload, auth=AUTH, timeout=timeout)
+
+
+def fetch_list(path: str, key: str, params: dict | None = None) -> list:
+    """GET a {key: [...]} list endpoint; return [] on any failure."""
+    try:
+        r = iris_get(path, params=params)
+        if r.status_code == 200:
+            return r.json().get(key, [])
+    except requests.RequestException:
+        pass
+    return []
+
+
+st.set_page_config(page_title="Agentic Clinical RAG (IRIS)", layout="wide")
+st.title("📄→🧠 Agentic Clinical RAG — IRIS Interoperability")
+st.caption(f"Thin client → {IRIS_REST_URL}")
 
 if "slug" not in st.session_state:
     st.session_state["slug"] = ""
 
-# ── STEP 1: PDF upload ──────────────────────────────────────────────────────
+# ── STEP 1: upload + ingest (via IRIS) ───────────────────────────────────────
 uploaded = st.file_uploader("Upload clinical PDF", type="pdf")
-if uploaded:
-    # Lazy imports (heavy: unstructured, langchain) — only loaded when processing a PDF.
-    from pipeline.precheck import ensure_meta_table, check_duplicate, record_metadata
-    from pipeline.extractor import Extractor
-    from pipeline.cleaner import organize_and_clean_by_section
-    from pipeline.chunker import main as chunk_markdown
-    from pipeline.loader import load_chunks_to_iris
+if uploaded is not None:
+    slug = Path(uploaded.name).stem
+    st.write(f"Slug: `{slug}`")
+    if st.button("⬆️ Ingest into IRIS"):
+        pdf_b64 = base64.b64encode(uploaded.getvalue()).decode("ascii")
+        with st.spinner("Ingesting via IRIS (extract → clean → chunk → load)…"):
+            try:
+                resp = iris_post("/ingest", {"slug": slug, "pdf_base64": pdf_b64}, timeout=900)
+            except requests.RequestException as e:
+                st.error(f"Request to IRIS failed: {e}")
+            else:
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.session_state["slug"] = data.get("slug", slug)
+                    st.success(f"✅ Loaded {data.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
+                else:
+                    st.error(f"Ingest failed ({resp.status_code}): {resp.text}")
 
-    slug    = Path(uploaded.name).stem
-    out_dir = Path("data") / slug
-    out_dir.mkdir(exist_ok=True, parents=True)
-    st.session_state["slug"] = slug
-    pdf_path = out_dir / uploaded.name
-    with open(pdf_path, "wb") as f:
-        f.write(uploaded.getbuffer())
-    st.success(f"Saved PDF: {pdf_path}")
-
-    ensure_meta_table()
-    override = st.checkbox("⚠️ Force re-upload even if already processed")
-    with st.spinner("🔍 Checking for prior load…"):
-        is_dup, uploaded_at, file_hash, size_bytes, page_count = check_duplicate(pdf_path, slug)
-
-    if is_dup and not override:
-        st.warning(f"ℹ️ PDF '{slug}' was already loaded on {uploaded_at:%Y-%m-%d %H:%M}.")
-        st.info("Tick **Force re-upload** above to process it again.")
-        st.stop()
-
-    prog = st.progress(0)
-
-    with st.spinner("🔍 Extracting text, images, tables…"):
-        extractor = Extractor(output_root="data")
-        stats = extractor.extract(str(pdf_path))
-    st.write("Extraction stats:", stats)
-    prog.progress(25)
-
-    with st.spinner("🧹 Cleaning & organizing into Markdown…"):
-        organize_and_clean_by_section("data", slug)
-    md_file = out_dir / "organized_cleaned_document.md"
-    st.write("Cleaned Markdown at:", md_file)
-    prog.progress(50)
-
-    with st.spinner("✂️ Splitting into chunks…"):
-        chunk_markdown(slug)
-    chunks_json = out_dir / "chunks.json"
-    st.write("Chunks JSON at:", chunks_json)
-    prog.progress(75)
-
-    with st.spinner("⬆️ Loading chunks into IRIS…"):
-        inserted = load_chunks_to_iris(slug, str(chunks_json))
-    st.success(f"✅ Loaded {inserted} new rows into Embedding.Clinical")
-    prog.progress(100)
-
-    if inserted > 0:
-        record_metadata(slug, file_hash, size_bytes, page_count)
-
-    st.success("🎉 PDF successfully processed and loaded!")
-
-# ── Sidebar ─────────────────────────────────────────────────────────────────
+# ── Sidebar: query filters ───────────────────────────────────────────────────
 with st.sidebar:
-    st.header("🩺 RAG Controls")
-    if st.button("Reset Database"):
-        with st.spinner("🔄 Resetting Embedding tables…"):
-            reset()
-        st.success("✅ Database reset successfully.")
-
     st.header("🩺 Query Filters")
-    pdfs     = [""] + get_pdf_list()
-    pdf      = st.selectbox("PDF to query", pdfs, index=0)
-    patients = [""] + get_patient_list(pdf)
-    patient  = st.selectbox("Patient name (optional)", patients, index=0)
-    visit_date = st.text_input("Visit date (YYYY or YYYY-MM or YYYY-MM-DD) (optional)")
-    resource   = st.selectbox(
+
+    # PDF dropdown populated from IRIS.
+    pdf_options = fetch_list("/pdfs", "pdfs")
+    choices = [""] + pdf_options
+    default_slug = st.session_state.get("slug", "")
+    idx = choices.index(default_slug) if default_slug in choices else 0
+    pdf = st.selectbox("PDF to query", choices, index=idx)
+    if not pdf_options:
+        st.caption("No documents loaded yet — ingest a PDF to populate this list.")
+
+    # Patient dropdown for the chosen PDF.
+    patient_options = fetch_list("/patients", "patients", params={"pdf": pdf}) if pdf else []
+    patient = st.selectbox("Patient (optional)", [""] + patient_options, index=0)
+
+    visit_date = st.text_input("Visit date — YYYY / YYYY-MM / YYYY-MM-DD (optional)")
+    resource = st.selectbox(
         "Preferred guideline source",
         ["ACE", "NICE", "NDF", "HSA", "FDA", "NIH", "CDC"],
         index=1,
@@ -104,82 +100,75 @@ with st.sidebar:
     )
     top_k = st.selectbox("Top k results", list(range(1, 11)), index=4)
 
-# ── Main query area ──────────────────────────────────────────────────────────
-st.title("🤖 Agentic Clinical RAG")
-st.caption(
-    "GPT-4o decides which tools to call and when — it can search patient records "
-    "and guidelines multiple times until it has enough context to answer."
-)
+    st.divider()
+    if st.button("Check IRIS health"):
+        try:
+            r = iris_get("/health")
+            (st.success if r.status_code == 200 else st.error)(f"{r.status_code}: {r.text}")
+        except requests.RequestException as e:
+            st.error(str(e))
+
+# ── Main: ask the agent (via IRIS) ───────────────────────────────────────────
+st.title("🤖 Ask the agent")
+st.caption("GPT-4o runs the tool loop inside IRIS — patient records (HNSW) + guidelines.")
 
 question = st.text_input("Enter your clinical question:")
 
 if st.button("Run Agent"):
     if not question.strip():
         st.warning("Please enter a question.")
-    elif not pdf:
-        st.warning("Please select a PDF to query from the sidebar.")
+    elif not pdf.strip():
+        st.warning("Enter a PDF slug in the sidebar (ingest a PDF first).")
     else:
-        steps_placeholder = st.empty()
-        tool_events: list[dict] = []
+        payload = {
+            "question": question,
+            "pdf": pdf,
+            "patient": patient or "",
+            "visit_date": visit_date or "",
+            "resource": resource or "",
+            "top_k": top_k,
+        }
+        with st.spinner("🤖 Agent reasoning in IRIS…"):
+            try:
+                resp = iris_post("/query", payload, timeout=180)
+            except requests.RequestException as e:
+                st.error(f"Request to IRIS failed: {e}")
+                resp = None
 
-        with st.spinner("🤖 Agent reasoning…"):
-            for event in run_agent_streaming(
-                question=question,
-                pdf=pdf,
-                patient=patient or None,
-                visit_date=visit_date or None,
-                resource=resource or None,
-                top_k=top_k,
-            ):
-                if event["type"] == "tool_start":
-                    tool_events.append(event)
-                    # Live update the steps expander while agent runs
-                    with steps_placeholder.container():
-                        with st.expander("🔧 Agent Steps (live)", expanded=True):
-                            for i, ev in enumerate(tool_events, 1):
-                                st.markdown(f"**Step {i} — `{ev['tool']}`**")
-                                st.json(ev.get("args", {}))
+        if resp is not None:
+            if resp.status_code != 200:
+                st.error(f"Query failed ({resp.status_code}): {resp.text}")
+            else:
+                data = resp.json()
+                tool_log = data.get("tool_log", [])
 
-                elif event["type"] == "tool_result":
-                    # Attach result to the matching start event
-                    for ev in reversed(tool_events):
-                        if ev["tool"] == event["tool"] and "result" not in ev:
-                            ev["result"] = event["result"]
-                            break
+                with st.expander("🔧 Agent tool calls", expanded=False):
+                    if not tool_log:
+                        st.write("_Agent answered without calling any tools._")
+                    for i, ev in enumerate(tool_log, 1):
+                        tool = ev.get("tool", "?")
+                        st.markdown(f"**Step {i} — `{tool}`**")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown("**Arguments**")
+                            st.json(ev.get("args", {}))
+                        with c2:
+                            st.markdown("**Result**")
+                            result = ev.get("result", [])
+                            if tool == "retrieve_patient_records" and isinstance(result, list):
+                                for rec in result:
+                                    st.markdown(
+                                        f"**[{rec.get('label', '?')}|{rec.get('date', '?')}]** "
+                                        f"{str(rec.get('text', ''))[:300]}…"
+                                    )
+                            elif tool == "guideline_search" and isinstance(result, list):
+                                for rec in result:
+                                    st.markdown(
+                                        f"**[{rec.get('label', '?')}|{rec.get('source', 'n/a')}]** "
+                                        f"{str(rec.get('text', ''))[:300]}…"
+                                    )
+                            else:
+                                st.json(result)
 
-                elif event["type"] == "answer":
-                    # Final answer — render complete tool log then the answer
-                    steps_placeholder.empty()
-
-                    with st.expander("🔧 Agent Tool Calls", expanded=False):
-                        if not tool_events:
-                            st.write("_Agent answered without calling any tools._")
-                        for i, ev in enumerate(tool_events, 1):
-                            st.markdown(f"**Step {i} — `{ev['tool']}`**")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.markdown("**Arguments**")
-                                st.json(ev.get("args", {}))
-                            with col2:
-                                st.markdown("**Result**")
-                                result = ev.get("result", [])
-                                if ev["tool"] == "retrieve_patient_records":
-                                    for rec in result:
-                                        st.markdown(
-                                            f"**[{rec.get('label', '?')}|{rec.get('date', '?')}]** "
-                                            f"{rec.get('text', '')[:300]}…"
-                                        )
-                                elif ev["tool"] == "guideline_search":
-                                    for rec in result:
-                                        st.markdown(
-                                            f"**[{rec.get('label', '?')}|{rec.get('source', 'n/a')}]** "
-                                            f"{rec.get('text', '')[:300]}…"
-                                        )
-                                else:
-                                    st.json(result)
-
-                    st.markdown("### 💬 Answer")
-                    st.markdown(event["text"])
-
-                elif event["type"] == "error":
-                    st.error(event["text"])
+                st.markdown("### 💬 Answer")
+                st.markdown(data.get("answer", ""))

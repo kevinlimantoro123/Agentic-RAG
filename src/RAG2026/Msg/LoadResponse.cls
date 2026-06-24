@@ -4,4 +4,16 @@ Class RAG2026.Msg.LoadResponse Extends Ens.Response
 
 Property RowsInserted As %Integer [ InitialExpression = 0 ];
 
+Storage Default
+{
+<Data name="LoadResponseDefaultData">
+<Subscript>"LoadResponse"</Subscript>
+<Value name="1">
+<Value>RowsInserted</Value>
+</Value>
+</Data>
+<DefaultData>LoadResponseDefaultData</DefaultData>
+<Type>%Storage.Persistent</Type>
+}
+
 }

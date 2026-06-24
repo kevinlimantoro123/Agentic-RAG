@@ -3,7 +3,7 @@ Include Ensemble
 /// LLM business operation: relays the chat messages + tool schemas to OpenAI and
 /// returns the assistant turn (content + any tool_calls). The agent loop lives in
 /// RAG2026.BP.AgentProcess; this operation is a single stateless OpenAI call.
-///
+/// 
 /// Light Python only (openai) -> safe to run as embedded Python in-process.
 Class RAG2026.BO.LLMOperation Extends Ens.BusinessOperation
 {
