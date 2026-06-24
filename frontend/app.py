@@ -16,6 +16,7 @@ import base64
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -56,6 +57,39 @@ def fetch_list(path: str, key: str, params: dict | None = None) -> list:
     except requests.RequestException:
         pass
     return []
+
+
+def call_with_timer(label: str, fn):
+    """Run a blocking call on a worker thread while ticking a live elapsed timer
+    on the main thread.
+
+    A bare st.spinner only animates while Streamlit is streaming updates, so a
+    single long request (ingest queue, agent query) leaves it frozen for the
+    whole wait. Driving an st.empty() counter from the main thread guarantees
+    the UI keeps visibly moving. Returns fn()'s result; re-raises its exception.
+    """
+    box: dict = {}
+
+    def worker():
+        try:
+            box["result"] = fn()
+        except BaseException as e:  # noqa: BLE001
+            box["error"] = e
+
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+    ph = st.empty()
+    start = time.time()
+    while t.is_alive():
+        ph.info(f"⏳ {label}… {int(time.time() - start)}s")
+        time.sleep(0.5)
+    t.join()
+    ph.empty()
+
+    if "error" in box:
+        raise box["error"]
+    return box.get("result")
 
 
 @st.cache_resource(show_spinner=False)
@@ -121,7 +155,10 @@ if uploaded is not None:
         pdf_b64 = base64.b64encode(uploaded.getvalue()).decode("ascii")
         # 1) Queue the job (returns immediately with a job id).
         try:
-            resp = iris_post("/ingest", {"slug": slug, "pdf_base64": pdf_b64}, timeout=60)
+            resp = call_with_timer(
+                "Queueing ingest in IRIS",
+                lambda: iris_post("/ingest", {"slug": slug, "pdf_base64": pdf_b64}, timeout=60),
+            )
         except requests.RequestException as e:
             st.error(f"Request to IRIS failed: {e}")
             resp = None
@@ -133,33 +170,33 @@ if uploaded is not None:
             # 2) Poll for completion (no long HTTP request to time out).
             status_box = st.empty()
             done = False
-            with st.spinner("Ingesting via IRIS (extract → clean → chunk → load)…"):
-                for _ in range(600):  # up to ~20 min at 2s intervals
-                    time.sleep(2)
-                    try:
-                        s = iris_get("/ingest/status", params={"id": job_id})
-                    except requests.RequestException as e:
-                        status_box.warning(f"status check failed: {e}")
-                        continue
-                    if s.status_code != 200:
-                        status_box.warning(f"status check returned {s.status_code}")
-                        continue
-                    d = s.json()
-                    state = d.get("status")
-                    status_box.info(f"Status: {state}")
-                    if state == "Done":
-                        st.session_state["slug"] = d.get("slug", slug)
-                        st.success(f"✅ Loaded {d.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
-                        done = True
-                        break
-                    if state == "Error":
-                        st.error(f"Ingest error: {d.get('error', '(no detail)')}")
-                        done = True
-                        break
-                    if state == "NotFound":
-                        st.error("Ingest job not found.")
-                        done = True
-                        break
+            poll_start = time.time()
+            for _ in range(600):  # up to ~20 min at 2s intervals
+                time.sleep(2)
+                try:
+                    s = iris_get("/ingest/status", params={"id": job_id})
+                except requests.RequestException as e:
+                    status_box.warning(f"status check failed: {e}")
+                    continue
+                if s.status_code != 200:
+                    status_box.warning(f"status check returned {s.status_code}")
+                    continue
+                d = s.json()
+                state = d.get("status")
+                status_box.info(f"⏳ Ingesting via IRIS — status: {state} ({int(time.time() - poll_start)}s)")
+                if state == "Done":
+                    st.session_state["slug"] = d.get("slug", slug)
+                    st.success(f"✅ Loaded {d.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
+                    done = True
+                    break
+                if state == "Error":
+                    st.error(f"Ingest error: {d.get('error', '(no detail)')}")
+                    done = True
+                    break
+                if state == "NotFound":
+                    st.error("Ingest job not found.")
+                    done = True
+                    break
             if not done:
                 st.warning("Still running after the wait window — check the production Visual Trace / sidecar.log.")
 
@@ -217,12 +254,14 @@ if st.button("Run Agent"):
             "resource": resource or "",
             "top_k": top_k,
         }
-        with st.spinner("🤖 Agent reasoning in IRIS…"):
-            try:
-                resp = iris_post("/query", payload, timeout=180)
-            except requests.RequestException as e:
-                st.error(f"Request to IRIS failed: {e}")
-                resp = None
+        try:
+            resp = call_with_timer(
+                "Agent reasoning in IRIS",
+                lambda: iris_post("/query", payload, timeout=180),
+            )
+        except requests.RequestException as e:
+            st.error(f"Request to IRIS failed: {e}")
+            resp = None
 
         if resp is not None:
             if resp.status_code != 200:

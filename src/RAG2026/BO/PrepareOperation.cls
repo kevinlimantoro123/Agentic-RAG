@@ -21,7 +21,7 @@ Property SidecarURL As %String(MAXLEN = 500) [ InitialExpression = "http://127.0
 Property WorkDir As %String(MAXLEN = 500) [ InitialExpression = "/opt/app/data/" ];
 
 /// HTTP timeout in seconds for the (potentially slow) extraction call.
-Property RequestTimeout As %Integer [ InitialExpression = 600 ];
+Property RequestTimeout As %Integer [ InitialExpression = 6000 ];
 
 XData MessageMap
 {
