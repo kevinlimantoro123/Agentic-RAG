@@ -36,7 +36,9 @@ from pipeline.cleaner import organize_and_clean_by_section
 from pipeline.chunker import main as chunk_markdown
 
 app = FastAPI(title="RAG2026 Extractor Sidecar")
-DEFAULT_STRATEGY = os.environ.get("SIDECAR_STRATEGY", "fast")
+
+DEFAULT_STRATEGY = os.environ.get("SIDECAR_STRATEGY", "hi_res")
+
 
 class PrepareIn(BaseModel):
     slug: str
@@ -81,6 +83,4 @@ def prepare(req: PrepareIn):
     except HTTPException:
         raise
     except Exception:
-        tb = traceback.format_exc()
-        print(tb, flush=True)  # surface the full traceback in sidecar.log
-        raise HTTPException(status_code=500, detail=tb)
+        raise HTTPException(status_code=500, detail=traceback.format_exc())

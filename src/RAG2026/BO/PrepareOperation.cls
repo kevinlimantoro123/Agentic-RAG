@@ -21,7 +21,7 @@ Property SidecarURL As %String(MAXLEN = 500) [ InitialExpression = "http://127.0
 Property WorkDir As %String(MAXLEN = 500) [ InitialExpression = "/opt/app/data/" ];
 
 /// HTTP timeout in seconds for the (potentially slow) extraction call.
-Property RequestTimeout As %Integer [ InitialExpression = 6000 ];
+Property RequestTimeout As %Integer [ InitialExpression = 600 ];
 
 XData MessageMap
 {
@@ -57,15 +57,8 @@ Method Prepare(pSlug As %String, pPdfB64 As %String, pWorkDir As %String, pUrl A
             f.write(base64.b64decode(pPdfB64))
 
     payload = {"slug": pSlug, "pdf_path": pdf_path, "work_dir": pWorkDir}
-    # Short connect timeout (fail fast if the sidecar is down) + long read
-    # timeout so a huge PDF's extraction doesn't trip a ReadTimeout. A
-    # RequestTimeout of 0 (or less) means "no read limit" -- wait indefinitely.
-    read_timeout = int(pTimeout)
-    timeout = (30, read_timeout if read_timeout > 0 else None)
-    r = requests.post(pUrl, json=payload, timeout=timeout)
-    # Surface the sidecar's actual error body instead of a bare HTTPError.
-    if r.status_code >= 400:
-        raise RuntimeError("Sidecar " + str(r.status_code) + " for slug '" + str(pSlug) + "': " + r.text[:2000])
+    r = requests.post(pUrl, json=payload, timeout=int(pTimeout))
+    r.raise_for_status()
     data = r.json()
 
     out = {

@@ -14,7 +14,8 @@ Config via env (or .env):
 
 import base64
 import os
-import threading
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -29,12 +30,13 @@ IRIS_USER = os.getenv("IRIS_USER", "SuperUser")
 IRIS_PASSWORD = os.getenv("IRIS_PASSWORD", "SYS")
 AUTH = (IRIS_USER, IRIS_PASSWORD)
 
-# ── Extractor sidecar (must be started separately — NOT auto-started) ─────────
-# Run it yourself before ingesting, e.g.:
-#   python -m uvicorn sidecar.extract_service:app --host 127.0.0.1 --port 8800
+# ── Extractor sidecar (auto-started below) ───────────────────────────────────
+REPO_ROOT = Path(__file__).resolve().parent.parent
 SIDECAR_HOST = os.getenv("SIDECAR_HOST", "127.0.0.1")
 SIDECAR_PORT = int(os.getenv("SIDECAR_PORT", "8800"))
+SIDECAR_STRATEGY = os.getenv("SIDECAR_STRATEGY", "fast")
 SIDECAR_HEALTH = f"http://{SIDECAR_HOST}:{SIDECAR_PORT}/health"
+AUTOSTART_SIDECAR = os.getenv("AUTOSTART_SIDECAR", "1") == "1"
 
 
 def iris_get(path: str, params: dict | None = None, timeout: int = 30):
@@ -56,58 +58,56 @@ def fetch_list(path: str, key: str, params: dict | None = None) -> list:
     return []
 
 
-def call_with_timer(label: str, fn):
-    """Run a blocking call on a worker thread while ticking a live elapsed timer
-    on the main thread.
+@st.cache_resource(show_spinner=False)
+def ensure_sidecar() -> str:
+    """Start the extractor sidecar once per Streamlit server process (idempotent).
 
-    A bare st.spinner only animates while Streamlit is streaming updates, so a
-    single long request (ingest queue, agent query) leaves it frozen for the
-    whole wait. Driving an st.empty() counter from the main thread guarantees
-    the UI keeps visibly moving. Returns fn()'s result; re-raises its exception.
+    Runs only when it isn't already reachable, so manually-started sidecars and
+    Streamlit reruns never spawn duplicates. Logs go to <repo>/sidecar.log.
     """
-    box: dict = {}
-
-    def worker():
-        try:
-            box["result"] = fn()
-        except BaseException as e:  # noqa: BLE001
-            box["error"] = e
-
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
-
-    ph = st.empty()
-    start = time.time()
-    while t.is_alive():
-        ph.info(f"⏳ {label}… {int(time.time() - start)}s")
-        time.sleep(0.5)
-    t.join()
-    ph.empty()
-
-    if "error" in box:
-        raise box["error"]
-    return box.get("result")
-
-
-def sidecar_reachable() -> bool:
-    """Passive check — the sidecar must be started separately (no auto-start)."""
     try:
-        return requests.get(SIDECAR_HEALTH, timeout=2).status_code == 200
+        if requests.get(SIDECAR_HEALTH, timeout=2).status_code == 200:
+            return "already running"
     except requests.RequestException:
-        return False
+        pass
+
+    env = os.environ.copy()
+    env["SIDECAR_STRATEGY"] = SIDECAR_STRATEGY
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
+
+    try:
+        logfile = open(REPO_ROOT / "sidecar.log", "a", encoding="utf-8")
+        subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "sidecar.extract_service:app",
+             "--host", SIDECAR_HOST, "--port", str(SIDECAR_PORT)],
+            cwd=str(REPO_ROOT),
+            env=env,
+            stdout=logfile,
+            stderr=logfile,
+            creationflags=creationflags,
+        )
+    except Exception as e:  # noqa: BLE001
+        return f"failed to launch: {e}"
+
+    # First launch imports unstructured/torch — that's slow, so poll briefly.
+    for _ in range(24):
+        time.sleep(0.5)
+        try:
+            if requests.get(SIDECAR_HEALTH, timeout=2).status_code == 200:
+                return "started"
+        except requests.RequestException:
+            continue
+    return "starting (first launch is slow — see sidecar.log)"
 
 
 st.set_page_config(page_title="Agentic Clinical RAG (IRIS)", layout="wide")
 st.title("Agentic Clinical RAG with IRIS")
 
-if sidecar_reachable():
-    st.caption(f"✅ Extractor sidecar reachable @ {SIDECAR_HOST}:{SIDECAR_PORT}")
-else:
-    st.warning(
-        f"⚠️ Extractor sidecar not reachable @ {SIDECAR_HOST}:{SIDECAR_PORT} — "
-        "start it before ingesting:  "
-        "`python -m uvicorn sidecar.extract_service:app --host 127.0.0.1 --port 8800`"
-    )
+if AUTOSTART_SIDECAR:
+    _sidecar_status = ensure_sidecar()
+    st.caption(f"Extractor sidecar @ {SIDECAR_HOST}:{SIDECAR_PORT} — {_sidecar_status}")
 
 if "slug" not in st.session_state:
     st.session_state["slug"] = ""
@@ -117,14 +117,11 @@ uploaded = st.file_uploader("Upload clinical PDF", type="pdf")
 if uploaded is not None:
     slug = Path(uploaded.name).stem
     st.write(f"Slug: `{slug}`")
-    if st.button("Ingest into IRIS"):
+    if st.button("⬆️ Ingest into IRIS"):
         pdf_b64 = base64.b64encode(uploaded.getvalue()).decode("ascii")
         # 1) Queue the job (returns immediately with a job id).
         try:
-            resp = call_with_timer(
-                "Queueing ingest in IRIS",
-                lambda: iris_post("/ingest", {"slug": slug, "pdf_base64": pdf_b64}, timeout=60),
-            )
+            resp = iris_post("/ingest", {"slug": slug, "pdf_base64": pdf_b64}, timeout=60)
         except requests.RequestException as e:
             st.error(f"Request to IRIS failed: {e}")
             resp = None
@@ -136,33 +133,33 @@ if uploaded is not None:
             # 2) Poll for completion (no long HTTP request to time out).
             status_box = st.empty()
             done = False
-            poll_start = time.time()
-            for _ in range(6000):
-                time.sleep(2)
-                try:
-                    s = iris_get("/ingest/status", params={"id": job_id})
-                except requests.RequestException as e:
-                    status_box.warning(f"status check failed: {e}")
-                    continue
-                if s.status_code != 200:
-                    status_box.warning(f"status check returned {s.status_code}")
-                    continue
-                d = s.json()
-                state = d.get("status")
-                status_box.info(f"⏳ Ingesting via IRIS — status: {state} ({int(time.time() - poll_start)}s)")
-                if state == "Done":
-                    st.session_state["slug"] = d.get("slug", slug)
-                    st.success(f"✅ Loaded {d.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
-                    done = True
-                    break
-                if state == "Error":
-                    st.error(f"Ingest error: {d.get('error', '(no detail)')}")
-                    done = True
-                    break
-                if state == "NotFound":
-                    st.error("Ingest job not found.")
-                    done = True
-                    break
+            with st.spinner("Ingesting via IRIS (extract → clean → chunk → load)…"):
+                for _ in range(600):  # up to ~20 min at 2s intervals
+                    time.sleep(2)
+                    try:
+                        s = iris_get("/ingest/status", params={"id": job_id})
+                    except requests.RequestException as e:
+                        status_box.warning(f"status check failed: {e}")
+                        continue
+                    if s.status_code != 200:
+                        status_box.warning(f"status check returned {s.status_code}")
+                        continue
+                    d = s.json()
+                    state = d.get("status")
+                    status_box.info(f"Status: {state}")
+                    if state == "Done":
+                        st.session_state["slug"] = d.get("slug", slug)
+                        st.success(f"✅ Loaded {d.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
+                        done = True
+                        break
+                    if state == "Error":
+                        st.error(f"Ingest error: {d.get('error', '(no detail)')}")
+                        done = True
+                        break
+                    if state == "NotFound":
+                        st.error("Ingest job not found.")
+                        done = True
+                        break
             if not done:
                 st.warning("Still running after the wait window — check the production Visual Trace / sidecar.log.")
 
@@ -220,14 +217,12 @@ if st.button("Run Agent"):
             "resource": resource or "",
             "top_k": top_k,
         }
-        try:
-            resp = call_with_timer(
-                "Agent reasoning in IRIS",
-                lambda: iris_post("/query", payload, timeout=180),
-            )
-        except requests.RequestException as e:
-            st.error(f"Request to IRIS failed: {e}")
-            resp = None
+        with st.spinner("🤖 Agent reasoning in IRIS…"):
+            try:
+                resp = iris_post("/query", payload, timeout=180)
+            except requests.RequestException as e:
+                st.error(f"Request to IRIS failed: {e}")
+                resp = None
 
         if resp is not None:
             if resp.status_code != 200:
