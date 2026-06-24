@@ -137,7 +137,7 @@ if uploaded is not None:
             status_box = st.empty()
             done = False
             poll_start = time.time()
-            for _ in range(600):  # up to ~20 min at 2s intervals
+            for _ in range(0):  # up to ~20 min at 2s intervals
                 time.sleep(2)
                 try:
                     s = iris_get("/ingest/status", params={"id": job_id})
