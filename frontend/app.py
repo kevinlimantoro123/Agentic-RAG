@@ -28,12 +28,23 @@ IRIS_PASSWORD = os.getenv("IRIS_PASSWORD", "SYS")
 AUTH = (IRIS_USER, IRIS_PASSWORD)
 
 
-def iris_get(path: str, timeout: int = 30):
-    return requests.get(f"{IRIS_REST_URL}{path}", auth=AUTH, timeout=timeout)
+def iris_get(path: str, params: dict | None = None, timeout: int = 30):
+    return requests.get(f"{IRIS_REST_URL}{path}", auth=AUTH, params=params, timeout=timeout)
 
 
 def iris_post(path: str, payload: dict, timeout: int):
     return requests.post(f"{IRIS_REST_URL}{path}", json=payload, auth=AUTH, timeout=timeout)
+
+
+def fetch_list(path: str, key: str, params: dict | None = None) -> list:
+    """GET a {key: [...]} list endpoint; return [] on any failure."""
+    try:
+        r = iris_get(path, params=params)
+        if r.status_code == 200:
+            return r.json().get(key, [])
+    except requests.RequestException:
+        pass
+    return []
 
 
 st.set_page_config(page_title="Agentic Clinical RAG (IRIS)", layout="wide")
@@ -66,8 +77,20 @@ if uploaded is not None:
 # ── Sidebar: query filters ───────────────────────────────────────────────────
 with st.sidebar:
     st.header("🩺 Query Filters")
-    pdf = st.text_input("PDF slug to query", value=st.session_state.get("slug", ""))
-    patient = st.text_input("Patient name (optional)")
+
+    # PDF dropdown populated from IRIS.
+    pdf_options = fetch_list("/pdfs", "pdfs")
+    choices = [""] + pdf_options
+    default_slug = st.session_state.get("slug", "")
+    idx = choices.index(default_slug) if default_slug in choices else 0
+    pdf = st.selectbox("PDF to query", choices, index=idx)
+    if not pdf_options:
+        st.caption("No documents loaded yet — ingest a PDF to populate this list.")
+
+    # Patient dropdown for the chosen PDF.
+    patient_options = fetch_list("/patients", "patients", params={"pdf": pdf}) if pdf else []
+    patient = st.selectbox("Patient (optional)", [""] + patient_options, index=0)
+
     visit_date = st.text_input("Visit date — YYYY / YYYY-MM / YYYY-MM-DD (optional)")
     resource = st.selectbox(
         "Preferred guideline source",

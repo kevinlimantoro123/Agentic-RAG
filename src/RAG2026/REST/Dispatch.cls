@@ -16,6 +16,8 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
 {
 <Routes>
   <Route Url="/health" Method="GET" Call="Health"/>
+  <Route Url="/pdfs" Method="GET" Call="Pdfs"/>
+  <Route Url="/patients" Method="GET" Call="Patients"/>
   <Route Url="/query" Method="POST" Call="Query"/>
   <Route Url="/ingest" Method="POST" Call="Ingest"/>
 </Routes>
@@ -25,6 +27,51 @@ ClassMethod Health() As %Status
 {
     set %response.ContentType = "application/json"
     write "{""status"":""ok""}"
+    quit $$$OK
+}
+
+/// GET /pdfs -> {"pdfs":["demo", ...]}  (distinct PDF slugs in Embedding.Clinical)
+ClassMethod Pdfs() As %Status
+{
+    try {
+        set tArr = []
+        set tRS = ##class(%SQL.Statement).%ExecDirect(, "SELECT DISTINCT PDF FROM Embedding.Clinical WHERE PDF IS NOT NULL AND PDF <> '' ORDER BY PDF")
+        while tRS.%Next() {
+            set tVal = tRS.%Get("PDF")
+            if (tVal '= "") { do tArr.%Push(tVal) }
+        }
+        set tOut = {}
+        set tOut.pdfs = tArr
+        set %response.ContentType = "application/json"
+        write tOut.%ToJSON()
+    } catch ex {
+        do ..WriteError(ex)
+    }
+    quit $$$OK
+}
+
+/// GET /patients?pdf=demo -> {"patients":["Madam A", ...]}
+ClassMethod Patients() As %Status
+{
+    try {
+        set tPdf = %request.Get("pdf")
+        set tArr = []
+        if (tPdf '= "") {
+            set tRS = ##class(%SQL.Statement).%ExecDirect(, "SELECT DISTINCT Patient FROM Embedding.Clinical WHERE PDF = ? AND Patient IS NOT NULL AND Patient <> '' ORDER BY Patient", tPdf)
+        } else {
+            set tRS = ##class(%SQL.Statement).%ExecDirect(, "SELECT DISTINCT Patient FROM Embedding.Clinical WHERE Patient IS NOT NULL AND Patient <> '' ORDER BY Patient")
+        }
+        while tRS.%Next() {
+            set tVal = tRS.%Get("Patient")
+            if (tVal '= "") { do tArr.%Push(tVal) }
+        }
+        set tOut = {}
+        set tOut.patients = tArr
+        set %response.ContentType = "application/json"
+        write tOut.%ToJSON()
+    } catch ex {
+        do ..WriteError(ex)
+    }
     quit $$$OK
 }
 
