@@ -24,4 +24,34 @@ Property TopK As %Integer [ InitialExpression = 0 ];
 /// Max agent reasoning iterations (0 = use process default).
 Property MaxIterations As %Integer [ InitialExpression = 0 ];
 
+Storage Default
+{
+<Data name="QueryRequestDefaultData">
+<Subscript>"QueryRequest"</Subscript>
+<Value name="1">
+<Value>Question</Value>
+</Value>
+<Value name="2">
+<Value>Pdf</Value>
+</Value>
+<Value name="3">
+<Value>Patient</Value>
+</Value>
+<Value name="4">
+<Value>VisitDate</Value>
+</Value>
+<Value name="5">
+<Value>Resource</Value>
+</Value>
+<Value name="6">
+<Value>TopK</Value>
+</Value>
+<Value name="7">
+<Value>MaxIterations</Value>
+</Value>
+</Data>
+<DefaultData>QueryRequestDefaultData</DefaultData>
+<Type>%Storage.Persistent</Type>
+}
+
 }

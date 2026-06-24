@@ -9,4 +9,22 @@ Property Resource As %String(MAXLEN = 20);
 
 Property MaxResults As %Integer [ InitialExpression = 3 ];
 
+Storage Default
+{
+<Data name="GuidelineRequestDefaultData">
+<Subscript>"GuidelineRequest"</Subscript>
+<Value name="1">
+<Value>Query</Value>
+</Value>
+<Value name="2">
+<Value>Resource</Value>
+</Value>
+<Value name="3">
+<Value>MaxResults</Value>
+</Value>
+</Data>
+<DefaultData>GuidelineRequestDefaultData</DefaultData>
+<Type>%Storage.Persistent</Type>
+}
+
 }

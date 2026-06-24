@@ -203,4 +203,19 @@ Method BuildTools() As %DynamicArray
     quit tools
 }
 
+Storage Default
+{
+<Data name="AgentProcessDefaultData">
+<Subscript>"AgentProcess"</Subscript>
+<Value name="1">
+<Value>MaxIterations</Value>
+</Value>
+<Value name="2">
+<Value>DefaultTopK</Value>
+</Value>
+</Data>
+<DefaultData>AgentProcessDefaultData</DefaultData>
+<Type>%Storage.Persistent</Type>
+}
+
 }

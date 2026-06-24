@@ -10,4 +10,19 @@ Property Slug As %String(MAXLEN = 200);
 /// shared WorkDir instead and leave this empty.)
 Property PdfBase64 As %String(MAXLEN = "");
 
+Storage Default
+{
+<Data name="IngestRequestDefaultData">
+<Subscript>"IngestRequest"</Subscript>
+<Value name="1">
+<Value>Slug</Value>
+</Value>
+<Value name="2">
+<Value>PdfBase64</Value>
+</Value>
+</Data>
+<DefaultData>IngestRequestDefaultData</DefaultData>
+<Type>%Storage.Persistent</Type>
+}
+
 }

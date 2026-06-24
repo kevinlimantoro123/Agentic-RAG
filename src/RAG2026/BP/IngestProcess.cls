@@ -32,4 +32,9 @@ Method OnRequest(pRequest As RAG2026.Msg.IngestRequest, Output pResponse As RAG2
     quit tSC
 }
 
+Storage Default
+{
+<Type>%Storage.Persistent</Type>
+}
+
 }
