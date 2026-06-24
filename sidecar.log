@@ -1,0 +1,7 @@
+INFO:     Started server process [14720]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8800 (Press CTRL+C to quit)
+No languages specified, defaulting to English.
+INFO:     127.0.0.1:50263 - "POST /prepare HTTP/1.1" 500 Internal Server Error
+INFO:     Shutting down
