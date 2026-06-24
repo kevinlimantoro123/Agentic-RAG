@@ -42,4 +42,43 @@ ClassMethod Mark(pJobId As %String, pStatus As %String, pRows As %Integer = 0, p
     quit tJob.%Save()
 }
 
+Storage Default
+{
+<Data name="IngestJobDefaultData">
+<Value name="1">
+<Value>%%CLASSNAME</Value>
+</Value>
+<Value name="2">
+<Value>JobId</Value>
+</Value>
+<Value name="3">
+<Value>Slug</Value>
+</Value>
+<Value name="4">
+<Value>PdfBase64</Value>
+</Value>
+<Value name="5">
+<Value>Status</Value>
+</Value>
+<Value name="6">
+<Value>RowsInserted</Value>
+</Value>
+<Value name="7">
+<Value>Error</Value>
+</Value>
+<Value name="8">
+<Value>Created</Value>
+</Value>
+<Value name="9">
+<Value>Updated</Value>
+</Value>
+</Data>
+<DataLocation>^RAG2026.Data.IngestJobD</DataLocation>
+<DefaultData>IngestJobDefaultData</DefaultData>
+<IdLocation>^RAG2026.Data.IngestJobD</IdLocation>
+<IndexLocation>^RAG2026.Data.IngestJobI</IndexLocation>
+<StreamLocation>^RAG2026.Data.IngestJobS</StreamLocation>
+<Type>%Storage.Persistent</Type>
+}
+
 }
