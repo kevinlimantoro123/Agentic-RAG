@@ -14,8 +14,6 @@ Config via env (or .env):
 
 import base64
 import os
-import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
@@ -31,13 +29,12 @@ IRIS_USER = os.getenv("IRIS_USER", "SuperUser")
 IRIS_PASSWORD = os.getenv("IRIS_PASSWORD", "SYS")
 AUTH = (IRIS_USER, IRIS_PASSWORD)
 
-# ── Extractor sidecar (auto-started below) ───────────────────────────────────
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# ── Extractor sidecar (must be started separately — NOT auto-started) ─────────
+# Run it yourself before ingesting, e.g.:
+#   python -m uvicorn sidecar.extract_service:app --host 127.0.0.1 --port 8800
 SIDECAR_HOST = os.getenv("SIDECAR_HOST", "127.0.0.1")
 SIDECAR_PORT = int(os.getenv("SIDECAR_PORT", "8800"))
-SIDECAR_STRATEGY = os.getenv("SIDECAR_STRATEGY", "fast")
 SIDECAR_HEALTH = f"http://{SIDECAR_HOST}:{SIDECAR_PORT}/health"
-AUTOSTART_SIDECAR = os.getenv("AUTOSTART_SIDECAR", "1") == "1"
 
 
 def iris_get(path: str, params: dict | None = None, timeout: int = 30):
@@ -92,56 +89,25 @@ def call_with_timer(label: str, fn):
     return box.get("result")
 
 
-@st.cache_resource(show_spinner=False)
-def ensure_sidecar() -> str:
-    """Start the extractor sidecar once per Streamlit server process (idempotent).
-
-    Runs only when it isn't already reachable, so manually-started sidecars and
-    Streamlit reruns never spawn duplicates. Logs go to <repo>/sidecar.log.
-    """
+def sidecar_reachable() -> bool:
+    """Passive check — the sidecar must be started separately (no auto-start)."""
     try:
-        if requests.get(SIDECAR_HEALTH, timeout=2).status_code == 200:
-            return "already running"
+        return requests.get(SIDECAR_HEALTH, timeout=2).status_code == 200
     except requests.RequestException:
-        pass
-
-    env = os.environ.copy()
-    env["SIDECAR_STRATEGY"] = SIDECAR_STRATEGY
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
-
-    try:
-        logfile = open(REPO_ROOT / "sidecar.log", "a", encoding="utf-8")
-        subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "sidecar.extract_service:app",
-             "--host", SIDECAR_HOST, "--port", str(SIDECAR_PORT)],
-            cwd=str(REPO_ROOT),
-            env=env,
-            stdout=logfile,
-            stderr=logfile,
-            creationflags=creationflags,
-        )
-    except Exception as e:  # noqa: BLE001
-        return f"failed to launch: {e}"
-
-    # First launch imports unstructured/torch — that's slow, so poll briefly.
-    for _ in range(24):
-        time.sleep(0.5)
-        try:
-            if requests.get(SIDECAR_HEALTH, timeout=2).status_code == 200:
-                return "started"
-        except requests.RequestException:
-            continue
-    return "starting (first launch is slow — see sidecar.log)"
+        return False
 
 
 st.set_page_config(page_title="Agentic Clinical RAG (IRIS)", layout="wide")
 st.title("Agentic Clinical RAG with IRIS")
 
-if AUTOSTART_SIDECAR:
-    _sidecar_status = ensure_sidecar()
-    st.caption(f"Extractor sidecar @ {SIDECAR_HOST}:{SIDECAR_PORT} — {_sidecar_status}")
+if sidecar_reachable():
+    st.caption(f"✅ Extractor sidecar reachable @ {SIDECAR_HOST}:{SIDECAR_PORT}")
+else:
+    st.warning(
+        f"⚠️ Extractor sidecar not reachable @ {SIDECAR_HOST}:{SIDECAR_PORT} — "
+        "start it before ingesting:  "
+        "`python -m uvicorn sidecar.extract_service:app --host 127.0.0.1 --port 8800`"
+    )
 
 if "slug" not in st.session_state:
     st.session_state["slug"] = ""

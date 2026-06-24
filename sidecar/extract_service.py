@@ -83,4 +83,6 @@ def prepare(req: PrepareIn):
     except HTTPException:
         raise
     except Exception:
-        raise HTTPException(status_code=500, detail=traceback.format_exc())
+        tb = traceback.format_exc()
+        print(tb, flush=True)  # surface the full traceback in sidecar.log
+        raise HTTPException(status_code=500, detail=tb)

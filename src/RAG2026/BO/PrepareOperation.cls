@@ -63,7 +63,9 @@ Method Prepare(pSlug As %String, pPdfB64 As %String, pWorkDir As %String, pUrl A
     read_timeout = int(pTimeout)
     timeout = (30, read_timeout if read_timeout > 0 else None)
     r = requests.post(pUrl, json=payload, timeout=timeout)
-    r.raise_for_status()
+    # Surface the sidecar's actual error body instead of a bare HTTPError.
+    if r.status_code >= 400:
+        raise RuntimeError("Sidecar " + str(r.status_code) + " for slug '" + str(pSlug) + "': " + r.text[:2000])
     data = r.json()
 
     out = {
