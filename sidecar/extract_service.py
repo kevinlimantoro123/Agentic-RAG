@@ -36,7 +36,7 @@ from pipeline.cleaner import organize_and_clean_by_section
 from pipeline.chunker import main as chunk_markdown
 
 app = FastAPI(title="RAG2026 Extractor Sidecar")
-
+DEFAULT_STRATEGY = os.environ.get("SIDECAR_STRATEGY", "fast")
 
 class PrepareIn(BaseModel):
     slug: str
@@ -47,13 +47,13 @@ class PrepareIn(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "repo_root": str(REPO_ROOT), "default_strategy": "fast"}
+    return {"status": "ok", "repo_root": str(REPO_ROOT), "default_strategy": DEFAULT_STRATEGY}
 
 
 @app.post("/prepare")
 def prepare(req: PrepareIn):
     slug = req.slug
-    strategy = req.strategy
+    strategy = req.strategy or DEFAULT_STRATEGY
 
     pdf_path = Path(req.pdf_path)
     if not pdf_path.exists():
