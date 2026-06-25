@@ -74,13 +74,29 @@ Method Search(pQuery As %String, pPdf As %String, pPatient As %String, pVisitDat
         # Empty query string is a fatal error for EMBEDDING(); fall back to recency.
         order = "ORDER BY VisitDate DESC"
 
-    sql = "SELECT TOP " + str(topk) + " VisitDate, Description FROM Embedding.Clinical " + where + " " + order
+    # Read the LONGVARCHAR via SUBSTRING (CAST is not allowed on stream fields, SQLCODE -37)
+    # so iris.sql returns plain text instead of a stream reference.
+    sql = "SELECT TOP " + str(topk) + " VisitDate, SUBSTRING(Description, 1, 32000) FROM Embedding.Clinical " + where + " " + order
 
     rs = iris.sql.exec(sql, *params)
 
     seen, out = set(), []
     for row in rs:
         date_val, raw = row[0], row[1]
+        if raw is None:
+            continue
+        if not isinstance(raw, str):
+            # LONGVARCHAR comes back as a %Stream.GlobalCharacter object whose
+            # str() is just the OID. Read its characters via the IRIS stream API
+            # (Read() is capital-R; the file-like read() does not exist).
+            try:
+                parts = []
+                raw.Rewind()
+                while not raw.AtEnd:
+                    parts.append(raw.Read(16000))
+                raw = "".join(parts)
+            except Exception:
+                raw = str(raw)
         if not raw:
             continue
         txt = raw.encode("ascii", "ignore").decode("ascii")

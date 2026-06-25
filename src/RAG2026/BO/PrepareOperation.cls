@@ -4,7 +4,7 @@ Include Ensemble
 /// and calls the OUT-OF-PROCESS extractor sidecar (FastAPI) to run the heavy
 /// extract -> clean -> chunk pipeline. The sidecar isolates unstructured/torch/OCR
 /// so a crash can never take down IRIS.
-///
+/// 
 /// Sidecar contract:  POST {SidecarURL}  body {"slug","pdf_path","work_dir"}
 ///                    returns            {"chunks_path": "...", "stats": {...}}
 Class RAG2026.BO.PrepareOperation Extends Ens.BusinessOperation
