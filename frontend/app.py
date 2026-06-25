@@ -117,7 +117,7 @@ uploaded = st.file_uploader("Upload clinical PDF", type="pdf")
 if uploaded is not None:
     slug = Path(uploaded.name).stem
     st.write(f"Slug: `{slug}`")
-    if st.button("⬆️ Ingest into IRIS"):
+    if st.button("Ingest into IRIS"):
         pdf_b64 = base64.b64encode(uploaded.getvalue()).decode("ascii")
         # 1) Queue the job (returns immediately with a job id).
         try:
