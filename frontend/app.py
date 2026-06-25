@@ -58,22 +58,6 @@ def fetch_list(path: str, key: str, params: dict | None = None) -> list:
     return []
 
 
-def render_ingest_status(d: dict, slug_fallback: str = "") -> bool:
-    """Render an /ingest/status payload. Returns True on a terminal state."""
-    state = d.get("status")
-    if state == "Done":
-        st.session_state["slug"] = d.get("slug", slug_fallback) or slug_fallback
-        st.success(f"✅ Loaded {d.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
-        return True
-    if state == "Error":
-        st.error(f"Ingest error: {d.get('error', '(no detail)')}")
-        return True
-    if state == "NotFound":
-        st.error("Ingest job not found.")
-        return True
-    return False
-
-
 @st.cache_resource(show_spinner=False)
 def ensure_sidecar() -> str:
     """Start the extractor sidecar once per Streamlit server process (idempotent).
@@ -146,39 +130,38 @@ if uploaded is not None:
             st.error(f"Ingest failed to start ({resp.status_code}): {resp.text}")
         elif resp is not None:
             job_id = resp.json().get("job_id")
-            # Hand the job to the auto-polling panel below. Keeping the id in
-            # session_state lets polling survive long runs and browser reconnects
-            # — a single ~20-min blocking run is what used to get stuck.
-            st.session_state["pending_job"] = {"id": job_id, "slug": slug}
-            st.rerun()
-
-# ── Ingest progress: auto-polls /ingest/status in short reruns until done ─────
-# Each cycle is a fresh, fast script run (poll → brief wait → rerun), so it
-# survives long jobs and browser reconnects instead of stalling in one run.
-_pending = st.session_state.get("pending_job")
-if _pending:
-    st.divider()
-    terminal, state = False, None
-    try:
-        s = iris_get("/ingest/status", params={"id": _pending["id"]})
-        if s.status_code != 200:
-            st.warning(f"status check returned {s.status_code}")
-        else:
-            d = s.json()
-            state = d.get("status")
-            terminal = render_ingest_status(d, _pending["slug"])
-    except requests.RequestException as e:
-        st.warning(f"status check failed: {e}")
-
-    if terminal:
-        st.session_state.pop("pending_job", None)
-    else:
-        with st.spinner(
-            f"Ingesting '{_pending['slug']}' via IRIS (extract → clean → chunk → load) "
-            f"— status: {state or 'starting'}…"
-        ):
-            time.sleep(2)
-        st.rerun()
+            # 2) Poll for completion (no long HTTP request to time out).
+            status_box = st.empty()
+            done = False
+            with st.spinner("Ingesting via IRIS (extract → clean → chunk → load)…"):
+                for _ in range(600):  # up to ~20 min at 2s intervals
+                    time.sleep(2)
+                    try:
+                        s = iris_get("/ingest/status", params={"id": job_id})
+                    except requests.RequestException as e:
+                        status_box.warning(f"status check failed: {e}")
+                        continue
+                    if s.status_code != 200:
+                        status_box.warning(f"status check returned {s.status_code}")
+                        continue
+                    d = s.json()
+                    state = d.get("status")
+                    status_box.info(f"Status: {state}")
+                    if state == "Done":
+                        st.session_state["slug"] = d.get("slug", slug)
+                        st.success(f"✅ Loaded {d.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
+                        done = True
+                        break
+                    if state == "Error":
+                        st.error(f"Ingest error: {d.get('error', '(no detail)')}")
+                        done = True
+                        break
+                    if state == "NotFound":
+                        st.error("Ingest job not found.")
+                        done = True
+                        break
+            if not done:
+                st.warning("Still running after the wait window — check the production Visual Trace / sidecar.log.")
 
 # ── Sidebar: query filters ───────────────────────────────────────────────────
 with st.sidebar:
