@@ -34,7 +34,7 @@ AUTH = (IRIS_USER, IRIS_PASSWORD)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SIDECAR_HOST = os.getenv("SIDECAR_HOST", "127.0.0.1")
 SIDECAR_PORT = int(os.getenv("SIDECAR_PORT", "8800"))
-SIDECAR_STRATEGY = "fast"
+SIDECAR_STRATEGY = os.getenv("SIDECAR_STRATEGY", "fast")
 SIDECAR_HEALTH = f"http://{SIDECAR_HOST}:{SIDECAR_PORT}/health"
 AUTOSTART_SIDECAR = os.getenv("AUTOSTART_SIDECAR", "1") == "1"
 
@@ -72,7 +72,7 @@ def ensure_sidecar() -> str:
         pass
 
     env = os.environ.copy()
-    SIDECAR_STRATEGY = "fast"
+    env["SIDECAR_STRATEGY"] = SIDECAR_STRATEGY
     creationflags = 0
     if os.name == "nt":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -103,8 +103,7 @@ def ensure_sidecar() -> str:
 
 
 st.set_page_config(page_title="Agentic Clinical RAG (IRIS)", layout="wide")
-st.title("📄→🧠 Agentic Clinical RAG — IRIS Interoperability")
-st.caption(f"Thin client → {IRIS_REST_URL}")
+st.title("Agentic Clinical RAG with IRIS")
 
 if AUTOSTART_SIDECAR:
     _sidecar_status = ensure_sidecar()
@@ -118,7 +117,7 @@ uploaded = st.file_uploader("Upload clinical PDF", type="pdf")
 if uploaded is not None:
     slug = Path(uploaded.name).stem
     st.write(f"Slug: `{slug}`")
-    if st.button("Ingest into IRIS"):
+    if st.button("⬆️ Ingest into IRIS"):
         pdf_b64 = base64.b64encode(uploaded.getvalue()).decode("ascii")
         # 1) Queue the job (returns immediately with a job id).
         try:
@@ -199,7 +198,7 @@ with st.sidebar:
             st.error(str(e))
 
 # ── Main: ask the agent (via IRIS) ───────────────────────────────────────────
-st.title("Ask the agent")
+st.title("🤖 Ask the agent")
 st.caption("GPT-4o runs the tool loop inside IRIS — patient records (HNSW) + guidelines.")
 
 question = st.text_input("Enter your clinical question:")
@@ -208,7 +207,7 @@ if st.button("Run Agent"):
     if not question.strip():
         st.warning("Please enter a question.")
     elif not pdf.strip():
-        st.warning("Enter a PDF slug in the sidebar (ingest a PDF first).")
+        st.warning("Select a PDF from the sidebar.")
     else:
         payload = {
             "question": question,
@@ -218,7 +217,7 @@ if st.button("Run Agent"):
             "resource": resource or "",
             "top_k": top_k,
         }
-        with st.spinner("Agent reasoning in IRIS…"):
+        with st.spinner("🤖 Agent reasoning in IRIS…"):
             try:
                 resp = iris_post("/query", payload, timeout=180)
             except requests.RequestException as e:

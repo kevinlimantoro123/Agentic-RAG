@@ -69,12 +69,7 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
             "AS HNSW(M=32, efConstruction=100, Distance='DotProduct')"
         )
 
-    # 3) Make the load idempotent: drop any existing rows for this slug so a
-    #    re-ingest replaces the document instead of appending a duplicate copy
-    #    (and re-billing the OpenAI embedding calls).
-    iris.sql.exec("DELETE FROM Embedding.Clinical WHERE PDF = ?", pSlug)
-
-    # 4) Load chunks.
+    # 3) Load chunks.
     with open(pChunksPath, "r", encoding="utf-8") as f:
         chunks = json.load(f)
 

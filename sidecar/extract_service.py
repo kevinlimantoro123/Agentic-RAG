@@ -37,7 +37,7 @@ from pipeline.chunker import main as chunk_markdown
 
 app = FastAPI(title="RAG2026 Extractor Sidecar")
 
-DEFAULT_STRATEGY = os.environ.get("SIDECAR_STRATEGY", "fast")
+DEFAULT_STRATEGY = os.environ.get("SIDECAR_STRATEGY", "hi_res")
 
 
 class PrepareIn(BaseModel):
