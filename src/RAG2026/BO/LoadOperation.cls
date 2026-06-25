@@ -67,14 +67,14 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
     except Exception:
         pass  # index already exists -> nothing to do
 
-    # 3) Make the load idempotent: drop any existing rows for this slug. A DELETE
-    #    that matches no rows returns SQLCODE 100, which iris.sql.exec surfaces as
-    #    an (empty-message) SQLError -- "nothing to delete" is not an error.
+    # 3) Best-effort idempotency: drop any existing rows for this slug before
+    #    re-loading. Benign conditions (no matching rows = SQLCODE 100, etc.)
+    #    surface as a SQLError from iris.sql.exec, so this is intentionally
+    #    swallowed -- a failed delete must never fail the ingest itself.
     try:
         iris.sql.exec("DELETE FROM Embedding.Clinical WHERE PDF = ?", pSlug)
-    except Exception as ex:
-        if getattr(ex, "sqlcode", None) != 100:
-            raise
+    except Exception:
+        pass
 
     # 4) Load chunks.
     with open(pChunksPath, "r", encoding="utf-8") as f:
