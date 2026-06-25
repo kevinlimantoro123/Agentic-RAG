@@ -128,6 +128,13 @@ if uploaded is not None:
 
         if resp is not None and resp.status_code != 200:
             st.error(f"Ingest failed to start ({resp.status_code}): {resp.text}")
+        elif resp is not None and resp.json().get("status") == "Duplicate":
+            _d = resp.json()
+            st.session_state["slug"] = _d.get("slug", slug)
+            st.warning(
+                f"⚠️ '{_d.get('slug', slug)}' is already loaded in IRIS "
+                f"({_d.get('rows_inserted', '?')} chunks) — skipped duplicate ingest."
+            )
         elif resp is not None:
             job_id = resp.json().get("job_id")
             # 2) Poll for completion (no long HTTP request to time out).

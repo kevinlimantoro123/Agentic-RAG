@@ -110,6 +110,25 @@ ClassMethod Ingest() As %Status
     try {
         set tBody = {}.%FromJSON(%request.Content)
 
+        // Duplicate guard: if this slug is already loaded, skip re-ingesting it
+        // entirely (avoids re-running extraction and re-touching the vector store).
+        set tCount = 0
+        try {
+            set tDupRS = ##class(%SQL.Statement).%ExecDirect(, "SELECT COUNT(*) FROM Embedding.Clinical WHERE PDF = ?", tBody.slug)
+            if tDupRS.%Next() { set tCount = +tDupRS.%GetData(1) }
+        } catch eDup {
+            set tCount = 0  // table doesn't exist yet -> not a duplicate
+        }
+        if (tCount > 0) {
+            set tOut = {}
+            set tOut.status = "Duplicate"
+            set tOut.slug = tBody.slug
+            set tOut."rows_inserted" = tCount
+            set %response.ContentType = "application/json"
+            write tOut.%ToJSON()
+            return $$$OK
+        }
+
         set tJob = ##class(RAG2026.Data.IngestJob).%New()
         set tJob.JobId = ..NewJobId()
         set tJob.Slug = tBody.slug
