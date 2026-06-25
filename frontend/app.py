@@ -28,7 +28,10 @@ load_dotenv()
 IRIS_REST_URL = os.getenv("IRIS_REST_URL", "http://localhost:52773/csp/rag2026").rstrip("/")
 IRIS_USER = os.getenv("IRIS_USER", "SuperUser")
 IRIS_PASSWORD = os.getenv("IRIS_PASSWORD", "SYS")
-AUTH = (IRIS_USER, IRIS_PASSWORD)
+# Only send HTTP Basic auth when a user is configured. When the IRIS web
+# application is set to Unauthenticated (e.g. behind IIS, which rejects the
+# Authorization header), an empty IRIS_USER disables the header entirely.
+AUTH = (IRIS_USER, IRIS_PASSWORD) if IRIS_USER else None
 
 # ── Extractor sidecar (auto-started below) ───────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent

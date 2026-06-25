@@ -86,9 +86,15 @@ Method Search(pQuery As %String, pPdf As %String, pPatient As %String, pVisitDat
         if raw is None:
             continue
         if not isinstance(raw, str):
-            # Defensive: read an IRIS stream object if one still comes through.
+            # LONGVARCHAR comes back as a %Stream.GlobalCharacter object whose
+            # str() is just the OID. Read its characters via the IRIS stream API
+            # (Read() is capital-R; the file-like read() does not exist).
             try:
-                raw = raw.read()
+                parts = []
+                raw.Rewind()
+                while not raw.AtEnd:
+                    parts.append(raw.Read(16000))
+                raw = "".join(parts)
             except Exception:
                 raw = str(raw)
         if not raw:
