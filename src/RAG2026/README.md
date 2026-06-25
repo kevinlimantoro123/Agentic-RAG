@@ -20,6 +20,13 @@ architecture). **Do not load `src/Demo`** — it targets the old MiniLM/linear d
 | Load Operation | `RAG2026.BO.LoadOperation` | loads chunks.json → `Embedding.Clinical` |
 
 Messages live in `RAG2026.Msg.*`. HTTP front door: `RAG2026.REST.Dispatch`.
+Async ingest jobs are tracked in the persistent class `RAG2026.Data.IngestJob`
+(status, slug, rows inserted, error).
+
+Supporting (non-production) pieces in the repo:
+- `sidecar/extract_service.py` — the FastAPI extractor sidecar (see below).
+- `frontend/app.py` — a Streamlit client that talks only to the REST API.
+- `pipeline/` — the extract → clean → chunk code the sidecar wraps.
 
 ## Design rule (prevents the prior segfault)
 
@@ -51,36 +58,80 @@ Python (`unstructured`/torch/OCR) runs **out-of-process** in the FastAPI sidecar
    Applications → Web Applications → New): name `/csp/rag2026`, namespace `RAG2026`,
    Dispatch Class `RAG2026.REST.Dispatch`, enable password (or your auth).
 6. **Sidecar** (see below) running and reachable at `Prepare Operation`'s `SidecarURL`.
+   The Streamlit frontend auto-starts it; otherwise launch it manually.
 7. **Start the production**: Interoperability → Configure → Production →
    `RAG2026.Production` → Start. (Set Auto-Start for the VM.)
+8. **Frontend** (optional UI), from the repo root in your Python venv:
+   ```
+   streamlit run frontend/app.py
+   ```
 
 ## REST API
 
 ```
-GET  /csp/rag2026/health
+GET  /csp/rag2026/health                  -> {"status":"ok"}
+GET  /csp/rag2026/pdfs                     -> {"pdfs":[...]}            distinct loaded slugs
+GET  /csp/rag2026/patients?pdf=<slug>      -> {"patients":[...]}        distinct patients (optionally per slug)
 POST /csp/rag2026/query    {"question","pdf","patient","visit_date","resource","top_k"}
 POST /csp/rag2026/ingest   {"slug","pdf_base64"}
+GET  /csp/rag2026/ingest/status?id=<jobId>
 ```
 
-## Extractor sidecar contract (the only non-IRIS piece — not yet written)
+### Ingest is asynchronous
 
-A small FastAPI app in your existing Python venv, wrapping `pipeline/`:
+`POST /ingest` does **not** run the extraction inline (that can take minutes and would
+trip the Web Gateway timeout). Instead it:
+
+1. **Duplicate guard** — if the `slug` already has rows in `Embedding.Clinical`, it
+   returns immediately without queueing:
+   ```json
+   {"status":"Duplicate","slug":"<slug>","rows_inserted":<n>}
+   ```
+   Duplicate detection is **by slug (the PDF filename stem), not by content** — a
+   different filename ingests as a new document even if the contents are identical.
+2. Otherwise it saves a `RAG2026.Data.IngestJob`, kicks off the work in a background
+   process (`JOB`), and returns `{"job_id":"...","status":"Queued"}`.
+
+Poll `GET /ingest/status?id=<jobId>` for progress:
+```json
+{"job_id":"...","slug":"...","status":"Queued|Running|Done|Error|NotFound","rows_inserted":<n>,"error":"..."}
+```
+The Streamlit frontend polls this endpoint and shows the duplicate / progress / result
+messages.
+
+## Extractor sidecar contract
+
+A small FastAPI app (`sidecar/extract_service.py`) wrapping `pipeline/`:
 
 ```
-POST {SidecarURL}      e.g. http://127.0.0.1:8800/prepare
-  body    {"slug": "...", "pdf_path": "<WorkDir>/<slug>/<slug>.pdf", "work_dir": "..."}
-  action  run extractor.py -> cleaner.py -> chunker.py, writing chunks.json
-  return  {"chunks_path": "<WorkDir>/<slug>/chunks.json", "stats": {...}}
+GET  {host}:{port}/health    -> {"status":"ok", ...}
+POST {SidecarURL}            e.g. http://127.0.0.1:8800/prepare
+  body    {"slug": "...", "pdf_path": "<work_dir>/<slug>/<slug>.pdf", "work_dir": "..."}
+  action  Extractor.extract -> organize_and_clean_by_section -> chunk_markdown,
+          writing data/<slug>/chunks.json
+  return  {"chunks_path": "<repo>/data/<slug>/chunks.json", "stats": {...}}
 ```
 
-`WorkDir` must be a directory shared by IRIS and the sidecar (same host). Run the
-sidecar as a systemd service. Ask Claude to generate this file next.
+Notes:
+- The PDF filename stem **must equal** the `slug` (the extractor derives its output dir
+  from the stem); the sidecar rejects a mismatch with HTTP 400.
+- Extraction strategy comes from the `SIDECAR_STRATEGY` env var (sidecar default
+  `hi_res`; the frontend launches it with `fast`).
+- `WorkDir` must be a directory shared by IRIS and the sidecar (same host).
+- Run it manually with:
+  ```
+  python -m uvicorn sidecar.extract_service:app --host 127.0.0.1 --port 8800
+  ```
+  or let `frontend/app.py` auto-start it (set `AUTOSTART_SIDECAR=0` to disable).
 
 ## Notes
 
 - `Embedding.Clinical` schema + HNSW index are created on first load by
-  `LoadOperation` — identical to the old `pipeline/loader.py`, so existing data is
-  compatible.
+  `LoadOperation`. On re-load of an existing slug it deletes the slug's rows before
+  re-inserting; because deleting then re-inserting against a **live HNSW index** can
+  raise during the INSERT, re-ingest of an already-loaded slug is blocked up front by
+  the duplicate guard rather than going through Load.
 - Secrets are stored in IRIS credentials (`OpenAIKey`/`TavilyKey`), not `.env`.
 - Tunables are production SETTINGS: `MaxIterations`, `DefaultTopK` (Agent Process),
-  `Model` (LLM Operation), `SidecarURL`/`WorkDir`/`RequestTimeout` (Prepare Operation).
+  `Model` (LLM Operation), `SidecarURL`/`WorkDir`/`RequestTimeout` (Prepare Operation;
+  `RequestTimeout` defaults to 3600s for slow extractions).
