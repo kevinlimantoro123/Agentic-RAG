@@ -55,24 +55,26 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
     )
     iris.sql.exec(create_sql)
 
-    # 2) Create the HNSW index once.
-    idx_count = 0
-    for r in iris.sql.exec(
-        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.INDEXES "
-        "WHERE TABLE_SCHEMA = 'Embedding' AND TABLE_NAME = 'Clinical' AND INDEX_NAME = 'HNSWIndex'"
-    ):
-        idx_count = r[0]
-        break
-    if int(idx_count) == 0:
+    # 2) Ensure the HNSW index exists, idempotently. iris.sql.exec raises if it
+    #    already exists, and the INFORMATION_SCHEMA existence check was unreliable
+    #    inside the production job (returned 0 even when present), so just attempt
+    #    the create and tolerate an already-existing index.
+    try:
         iris.sql.exec(
             "CREATE INDEX HNSWIndex ON TABLE Embedding.Clinical (DescriptionEmbedding) "
             "AS HNSW(M=32, efConstruction=100, Distance='DotProduct')"
         )
+    except Exception:
+        pass  # index already exists -> nothing to do
 
-    # 3) Make the load idempotent: drop any existing rows for this slug so a
-    #    re-ingest replaces the document instead of appending a duplicate copy
-    #    (and re-billing the OpenAI embedding calls).
-    iris.sql.exec("DELETE FROM Embedding.Clinical WHERE PDF = ?", pSlug)
+    # 3) Make the load idempotent: drop any existing rows for this slug. A DELETE
+    #    that matches no rows returns SQLCODE 100, which iris.sql.exec surfaces as
+    #    an (empty-message) SQLError -- "nothing to delete" is not an error.
+    try:
+        iris.sql.exec("DELETE FROM Embedding.Clinical WHERE PDF = ?", pSlug)
+    except Exception as ex:
+        if getattr(ex, "sqlcode", None) != 100:
+            raise
 
     # 4) Load chunks.
     with open(pChunksPath, "r", encoding="utf-8") as f:
