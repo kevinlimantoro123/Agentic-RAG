@@ -55,17 +55,14 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
     )
     iris.sql.exec(create_sql)
 
-    # 2) Ensure the HNSW index exists, idempotently. iris.sql.exec raises if it
-    #    already exists, and the INFORMATION_SCHEMA existence check was unreliable
-    #    inside the production job (returned 0 even when present), so just attempt
-    #    the create and tolerate an already-existing index.
+    # 2) Drop the HNSW index before touching rows. Mutating a live HNSW vector
+    #    index with DELETE + re-INSERT raises during the INSERT, so we replace the
+    #    rows with no index present and rebuild it from scratch in step 5. Tolerate
+    #    the index not existing yet (first-ever load).
     try:
-        iris.sql.exec(
-            "CREATE INDEX HNSWIndex ON TABLE Embedding.Clinical (DescriptionEmbedding) "
-            "AS HNSW(M=32, efConstruction=100, Distance='DotProduct')"
-        )
+        iris.sql.exec("DROP INDEX HNSWIndex ON TABLE Embedding.Clinical")
     except Exception:
-        pass  # index already exists -> nothing to do
+        pass  # index didn't exist -> nothing to drop
 
     # 3) Best-effort idempotency: drop any existing rows for this slug before
     #    re-loading. Benign conditions (no matching rows = SQLCODE 100, etc.)
@@ -100,6 +97,16 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
             chunk.get("pdf", "") or pSlug,
         )
         inserted += 1
+
+    # 5) Rebuild the HNSW index from the current rows. Building once, after the
+    #    bulk insert, is both faster and avoids per-row index mutation.
+    try:
+        iris.sql.exec(
+            "CREATE INDEX HNSWIndex ON TABLE Embedding.Clinical (DescriptionEmbedding) "
+            "AS HNSW(M=32, efConstruction=100, Distance='DotProduct')"
+        )
+    except Exception:
+        pass  # index already present -> leave it as-is
 
     return inserted
 }
