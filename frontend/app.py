@@ -103,7 +103,8 @@ def ensure_sidecar() -> str:
 
 
 st.set_page_config(page_title="Agentic Clinical RAG (IRIS)", layout="wide")
-st.title("Agentic Clinical RAG with IRIS")
+st.title("📄→🧠 Agentic Clinical RAG — IRIS Interoperability")
+st.caption(f"Thin client → {IRIS_REST_URL}")
 
 if AUTOSTART_SIDECAR:
     _sidecar_status = ensure_sidecar()
@@ -207,7 +208,7 @@ if st.button("Run Agent"):
     if not question.strip():
         st.warning("Please enter a question.")
     elif not pdf.strip():
-        st.warning("Select a PDF from the sidebar.")
+        st.warning("Enter a PDF slug in the sidebar (ingest a PDF first).")
     else:
         payload = {
             "question": question,
