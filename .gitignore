@@ -6,3 +6,5 @@ data
 .claude
 venv
 .vscode
+# runtime log
+sidecar.log

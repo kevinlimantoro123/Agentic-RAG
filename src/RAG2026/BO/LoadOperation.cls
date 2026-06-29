@@ -72,9 +72,8 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
     #    an (empty-message) SQLError -- "nothing to delete" is not an error.
     try:
         iris.sql.exec("DELETE FROM Embedding.Clinical WHERE PDF = ?", pSlug)
-    except Exception as ex:
-        if getattr(ex, "sqlcode", None) != 100:
-            raise
+    except Exception:
+        pass
 
     # 4) Load chunks.
     with open(pChunksPath, "r", encoding="utf-8") as f:
