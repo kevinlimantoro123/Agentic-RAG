@@ -25,7 +25,6 @@ def load_chunks_to_iris(pdf_slug: str, chunks_json_path: str) -> None:
           Length INT,
           Description LONGVARCHAR,
           DescriptionEmbedding EMBEDDING('openai-embedding-config','Description'),
-          NameEmbedding        EMBEDDING('openai-embedding-config','Name'),
           Patient VARCHAR(50),
           VisitDate VARCHAR(50),
           PDF VARCHAR(50)
