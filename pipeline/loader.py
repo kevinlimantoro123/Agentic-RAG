@@ -3,6 +3,10 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from pathlib import Path
 from dotenv import load_dotenv
+try:
+    from pipeline.embedder import embed_chunks   # run as a module from repo root
+except ImportError:
+    from embedder import embed_chunks             # run directly from pipeline/
 
 # ─── config ───────────────────────────────────────────────────────────────
 load_dotenv()                              
@@ -24,7 +28,7 @@ def load_chunks_to_iris(pdf_slug: str, chunks_json_path: str) -> None:
           Name VARCHAR(200),
           Length INT,
           Description LONGVARCHAR,
-          DescriptionEmbedding EMBEDDING('openai-embedding-config','Description'),
+          DescriptionEmbedding VECTOR(DOUBLE, 1536),
           Patient VARCHAR(50),
           VisitDate VARCHAR(50),
           PDF VARCHAR(50)
@@ -55,10 +59,15 @@ def load_chunks_to_iris(pdf_slug: str, chunks_json_path: str) -> None:
       with open(path, "r", encoding="utf-8") as f:
           chunks = json.load(f)
 
+      # Batch-embed any chunks that don't already carry a vector (no-op if the
+      # sidecar already embedded them), so the INSERTs below stay pure SQL.
+      embed_chunks(chunks)
+
       insert_sql = text(f"""
         INSERT INTO {tbl}
-          (Description, Length, Name, Patient, VisitDate, PDF)
-        VALUES (:text, :tokens, :heading, :patient, :visitdate, :pdf)
+          (Description, Length, Name, Patient, VisitDate, PDF, DescriptionEmbedding)
+        VALUES (:text, :tokens, :heading, :patient, :visitdate, :pdf,
+                TO_VECTOR(:emb, DOUBLE, 1536))
       """)
 
       # 5) Iterate & insert
@@ -75,6 +84,9 @@ def load_chunks_to_iris(pdf_slug: str, chunks_json_path: str) -> None:
               print(f"⚠ Skipping empty chunk #{idx}")
               continue
 
+          emb = chunk.get("embedding")
+          emb_str = ",".join(repr(float(x)) for x in emb) if emb else None
+
           try:
               conn.execute(insert_sql, {
                   "text":      text_val,
@@ -82,7 +94,8 @@ def load_chunks_to_iris(pdf_slug: str, chunks_json_path: str) -> None:
                   "heading":   heading,
                   "patient":   patient,
                   "visitdate": visitdate,
-                  "pdf": pdf
+                  "pdf": pdf,
+                  "emb": emb_str
               })
               inserted += 1
           except SQLAlchemyError as e:

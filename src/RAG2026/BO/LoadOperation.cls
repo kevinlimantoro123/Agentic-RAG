@@ -1,8 +1,10 @@
 Include Ensemble
 
 /// Load business operation: bulk-loads a chunks.json into Embedding.Clinical.
-/// IRIS generates the OpenAI embeddings server-side (the EMBEDDING(...) columns)
-/// and maintains the HNSW index. Native port of pipeline/loader.py via iris.sql.
+/// Embeddings are precomputed in batches by the sidecar (pipeline/embedder.py) and
+/// carried in chunks.json, so this operation only does fast INSERTs of text +
+/// vector (TO_VECTOR) and never makes a per-row embedding call. IRIS maintains the
+/// HNSW index on the manually-populated DescriptionEmbedding VECTOR column.
 Class RAG2026.BO.LoadOperation Extends Ens.BusinessOperation
 {
 
@@ -41,13 +43,15 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
     if not pChunksPath or not os.path.exists(pChunksPath):
         raise FileNotFoundError("chunks.json not found at: " + str(pChunksPath))
 
-    # 1) Create the table if missing (server-side OpenAI embedding columns).
+    # 1) Create the table if missing. DescriptionEmbedding is a plain VECTOR we
+    #    populate ourselves from precomputed vectors (NOT an EMBEDDING() computed
+    #    column), so inserts never trigger a server-side OpenAI call.
     create_sql = (
         "CREATE TABLE IF NOT EXISTS Embedding.Clinical ("
         "Name VARCHAR(200), "
         "Length INT, "
         "Description LONGVARCHAR, "
-        "DescriptionEmbedding EMBEDDING('" + pConfig + "','Description'), "
+        "DescriptionEmbedding VECTOR(DOUBLE, 1536), "
         "Patient VARCHAR(50), "
         "VisitDate VARCHAR(50), "
         "PDF VARCHAR(50))"
@@ -80,8 +84,9 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
         chunks = json.load(f)
 
     insert_sql = (
-        "INSERT INTO Embedding.Clinical (Description, Length, Name, Patient, VisitDate, PDF) "
-        "VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO Embedding.Clinical "
+        "(Description, Length, Name, Patient, VisitDate, PDF, DescriptionEmbedding) "
+        "VALUES (?, ?, ?, ?, ?, ?, TO_VECTOR(?, DOUBLE, 1536))"
     )
 
     inserted = 0
@@ -89,6 +94,17 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
         text_val = chunk.get("text", "")
         if not text_val:
             continue
+        emb = chunk.get("embedding")
+        # Fail loudly rather than store a useless zero vector: TO_VECTOR(NULL)
+        # materializes as all-zeros in IRIS, which silently breaks search. A
+        # missing embedding means the sidecar embed step didn't run (stale process
+        # or pre-change chunks.json) -- restart the sidecar and re-prepare.
+        if not emb:
+            raise ValueError(
+                "chunks.json chunk has no precomputed 'embedding'; "
+                "restart the sidecar so /prepare embeds chunks before Load."
+            )
+        emb_str = ",".join(repr(float(x)) for x in emb)
         iris.sql.exec(
             insert_sql,
             text_val,
@@ -97,6 +113,7 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
             chunk.get("patient", ""),
             chunk.get("visitdate", ""),
             chunk.get("pdf", "") or pSlug,
+            emb_str,
         )
         inserted += 1
 
