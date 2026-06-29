@@ -48,7 +48,6 @@ Method LoadChunks(pSlug As %String, pChunksPath As %String, pConfig As %String) 
         "Length INT, "
         "Description LONGVARCHAR, "
         "DescriptionEmbedding EMBEDDING('" + pConfig + "','Description'), "
-        "NameEmbedding EMBEDDING('" + pConfig + "','Name'), "
         "Patient VARCHAR(50), "
         "VisitDate VARCHAR(50), "
         "PDF VARCHAR(50))"
