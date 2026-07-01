@@ -61,6 +61,17 @@ def fetch_list(path: str, key: str, params: dict | None = None) -> list:
     return []
 
 
+def fetch_value(path: str, key: str, default=None, params: dict | None = None):
+    """GET a {key: value} endpoint; return `default` on any failure."""
+    try:
+        r = iris_get(path, params=params)
+        if r.status_code == 200:
+            return r.json().get(key, default)
+    except requests.RequestException:
+        pass
+    return default
+
+
 @st.cache_resource(show_spinner=False)
 def ensure_sidecar() -> str:
     """Start the extractor sidecar once per Streamlit server process (idempotent).
@@ -112,66 +123,136 @@ if AUTOSTART_SIDECAR:
     _sidecar_status = ensure_sidecar()
     st.caption(f"Extractor sidecar @ {SIDECAR_HOST}:{SIDECAR_PORT} — {_sidecar_status}")
 
+import hashlib
+
 if "slug" not in st.session_state:
     st.session_state["slug"] = ""
+if "replace_pending" not in st.session_state:
+    st.session_state["replace_pending"] = False
+if "replace_payload" not in st.session_state:
+    st.session_state["replace_payload"] = None
+
+def _run_ingest(slug: str, pdf_b64: str):
+    """Queue the ingest job and poll until done. Returns True when the caller
+    should stop (done, error, or duplicate)."""
+    try:
+        resp = iris_post("/ingest", {"slug": slug, "pdf_base64": pdf_b64}, timeout=60)
+    except requests.RequestException as e:
+        st.error(f"Request to IRIS failed: {e}")
+        return
+
+    if resp.status_code != 200:
+        st.error(f"Ingest failed to start ({resp.status_code}): {resp.text}")
+        return
+
+    _d = resp.json()
+    if _d.get("status") == "Duplicate":
+        st.session_state["slug"] = _d.get("slug", slug)
+        _mode = _d.get("mode", "Slug")
+        _existing = _d.get("slug", slug)
+        _chunks = _d.get("rows_inserted", "?")
+        if _mode == "Content":
+            st.warning(
+                f"⚠️ This file's contents are already loaded as '{_existing}' "
+                f"({_chunks} chunks) — skipped duplicate ingest (Content mode)."
+            )
+        else:
+            st.warning(
+                f"⚠️ '{_existing}' is already loaded in IRIS "
+                f"({_chunks} chunks) — skipped duplicate ingest (Slug mode)."
+            )
+        return
+
+    job_id = _d.get("job_id")
+    # Poll for completion (no long HTTP request to time out).
+    status_box = st.empty()
+    done = False
+    with st.spinner("Ingesting via IRIS (extract → clean → chunk → load)…"):
+        for _ in range(600):  # up to ~20 min at 2s intervals
+            time.sleep(2)
+            try:
+                s = iris_get("/ingest/status", params={"id": job_id})
+            except requests.RequestException as e:
+                status_box.warning(f"status check failed: {e}")
+                continue
+            if s.status_code != 200:
+                status_box.warning(f"status check returned {s.status_code}")
+                continue
+            d = s.json()
+            state = d.get("status")
+            status_box.info(f"Status: {state}")
+            if state == "Done":
+                st.session_state["slug"] = d.get("slug", slug)
+                st.success(f"✅ Loaded {d.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
+                done = True
+                break
+            if state == "Error":
+                st.error(f"Ingest error: {d.get('error', '(no detail)')}")
+                done = True
+                break
+            if state == "NotFound":
+                st.error("Ingest job not found.")
+                done = True
+                break
+    if not done:
+        st.warning("Still running after the wait window — check the production Visual Trace / sidecar.log.")
+
 
 # ── STEP 1: upload + ingest (via IRIS) ───────────────────────────────────────
 uploaded = st.file_uploader("Upload clinical PDF", type="pdf")
+
+# Reset the pending-replace state when a different file is uploaded.
+if uploaded is not None:
+    _uploaded_slug = Path(uploaded.name).stem
+    if st.session_state["replace_payload"] is not None:
+        if st.session_state["replace_payload"].get("slug") != _uploaded_slug:
+            st.session_state["replace_pending"] = False
+            st.session_state["replace_payload"] = None
+
 if uploaded is not None:
     slug = Path(uploaded.name).stem
     st.write(f"Slug: `{slug}`")
-    if st.button("Ingest into IRIS"):
-        pdf_b64 = base64.b64encode(uploaded.getvalue()).decode("ascii")
-        # 1) Queue the job (returns immediately with a job id).
-        try:
-            resp = iris_post("/ingest", {"slug": slug, "pdf_base64": pdf_b64}, timeout=60)
-        except requests.RequestException as e:
-            st.error(f"Request to IRIS failed: {e}")
-            resp = None
 
-        if resp is not None and resp.status_code != 200:
-            st.error(f"Ingest failed to start ({resp.status_code}): {resp.text}")
-        elif resp is not None and resp.json().get("status") == "Duplicate":
-            _d = resp.json()
-            st.session_state["slug"] = _d.get("slug", slug)
-            st.warning(
-                f"⚠️ '{_d.get('slug', slug)}' is already loaded in IRIS "
-                f"({_d.get('rows_inserted', '?')} chunks) — skipped duplicate ingest."
-            )
-        elif resp is not None:
-            job_id = resp.json().get("job_id")
-            # 2) Poll for completion (no long HTTP request to time out).
-            status_box = st.empty()
-            done = False
-            with st.spinner("Ingesting via IRIS (extract → clean → chunk → load)…"):
-                for _ in range(600):  # up to ~20 min at 2s intervals
-                    time.sleep(2)
-                    try:
-                        s = iris_get("/ingest/status", params={"id": job_id})
-                    except requests.RequestException as e:
-                        status_box.warning(f"status check failed: {e}")
-                        continue
-                    if s.status_code != 200:
-                        status_box.warning(f"status check returned {s.status_code}")
-                        continue
-                    d = s.json()
-                    state = d.get("status")
-                    status_box.info(f"Status: {state}")
-                    if state == "Done":
-                        st.session_state["slug"] = d.get("slug", slug)
-                        st.success(f"✅ Loaded {d.get('rows_inserted', '?')} chunks for '{st.session_state['slug']}'.")
-                        done = True
-                        break
-                    if state == "Error":
-                        st.error(f"Ingest error: {d.get('error', '(no detail)')}")
-                        done = True
-                        break
-                    if state == "NotFound":
-                        st.error("Ingest job not found.")
-                        done = True
-                        break
-            if not done:
-                st.warning("Still running after the wait window — check the production Visual Trace / sidecar.log.")
+    # ── Replace-confirmation banner (shown after first click detected a conflict)
+    if st.session_state["replace_pending"]:
+        _rp = st.session_state["replace_payload"]
+        st.warning(
+            f"⚠️ **'{slug}'** is already loaded ({_rp.get('rows', '?')} chunks). "
+            f"Replace it with this new file?"
+        )
+        _col1, _col2 = st.columns([1, 4])
+        if _col1.button("Yes, replace"):
+            st.session_state["replace_pending"] = False
+            _payload = st.session_state["replace_payload"]
+            st.session_state["replace_payload"] = None
+            _run_ingest(_payload["slug"], _payload["pdf_b64"])
+        if _col2.button("Cancel"):
+            st.session_state["replace_pending"] = False
+            st.session_state["replace_payload"] = None
+
+    elif st.button("Ingest into IRIS"):
+        pdf_b64 = base64.b64encode(uploaded.getvalue()).decode("ascii")
+        pdf_hash = hashlib.sha256(uploaded.getvalue()).hexdigest()
+
+        # Pre-check: find out what /ingest would do before committing.
+        try:
+            chk = iris_get("/ingest/check", params={"slug": slug, "hash": pdf_hash})
+            action = chk.json().get("action", "new") if chk.status_code == 200 else "new"
+        except requests.RequestException:
+            action = "new"
+
+        if action == "replace":
+            # Pause and ask the user to confirm before replacing.
+            st.session_state["replace_pending"] = True
+            st.session_state["replace_payload"] = {
+                "slug": slug,
+                "pdf_b64": pdf_b64,
+                "rows": chk.json().get("rows", "?"),
+            }
+            st.rerun()
+        else:
+            _run_ingest(slug, pdf_b64)
+
 
 # ── Sidebar: query filters ───────────────────────────────────────────────────
 with st.sidebar:
@@ -198,6 +279,29 @@ with st.sidebar:
         help="The agent may choose a different source if more appropriate.",
     )
     top_k = st.selectbox("Top k results", list(range(1, 11)), index=4)
+
+    st.divider()
+    st.subheader("⚙️ Duplicate detection")
+    _modes = ["Slug", "Content"]
+    _cur_mode = fetch_value("/dedup", "mode", default="Slug")
+    _sel_mode = st.radio(
+        "When is an uploaded PDF a duplicate?",
+        _modes,
+        index=_modes.index(_cur_mode) if _cur_mode in _modes else 0,
+        help=(
+            "**Slug** — identity is the filename. A renamed-but-identical PDF "
+            "loads as new; re-using a name is blocked.\n\n"
+            "**Content** — identity is the file's bytes (SHA-256). Identical "
+            "content under a new name is blocked; a *changed* file under an "
+            "existing name re-loads and replaces it."
+        ),
+    )
+    if _sel_mode != _cur_mode:
+        try:
+            iris_post("/dedup", {"mode": _sel_mode}, timeout=15)
+            st.caption(f"Dedup mode set to **{_sel_mode}**.")
+        except requests.RequestException as e:
+            st.error(f"Couldn't set dedup mode: {e}")
 
     st.divider()
     if st.button("Check IRIS health"):

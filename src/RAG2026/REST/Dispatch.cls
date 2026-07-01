@@ -7,6 +7,8 @@ Include Ensemble
 ///   POST /query    {"question","pdf","patient","visit_date","resource","top_k"}
 ///   POST /ingest   {"slug","pdf_base64"}
 ///   GET  /health
+///   GET  /dedup    -> {"mode":"Slug|Content"}
+///   POST /dedup    {"mode":"Slug|Content"}  toggles the duplicate-detection policy
 Class RAG2026.REST.Dispatch Extends %CSP.REST
 {
 
@@ -20,7 +22,10 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
   <Route Url="/patients" Method="GET" Call="Patients"/>
   <Route Url="/query" Method="POST" Call="Query"/>
   <Route Url="/ingest" Method="POST" Call="Ingest"/>
+  <Route Url="/ingest/check" Method="GET" Call="IngestCheck"/>
   <Route Url="/ingest/status" Method="GET" Call="IngestStatus"/>
+  <Route Url="/dedup" Method="GET" Call="DedupGet"/>
+  <Route Url="/dedup" Method="POST" Call="DedupSet"/>
 </Routes>
 }
 
@@ -109,21 +114,33 @@ ClassMethod Ingest() As %Status
 {
     try {
         set tBody = {}.%FromJSON(%request.Content)
+        set tHash = ..PdfHash(tBody."pdf_base64")
+        set tMode = ..DedupMode()
 
-        // Duplicate guard: if this slug is already loaded, skip re-ingesting it
-        // entirely (avoids re-running extraction and re-touching the vector store).
-        set tCount = 0
-        try {
-            set tDupRS = ##class(%SQL.Statement).%ExecDirect(, "SELECT COUNT(*) FROM Embedding.Clinical WHERE PDF = ?", tBody.slug)
-            if tDupRS.%Next() { set tCount = +tDupRS.%GetData(1) }
-        } catch eDup {
-            set tCount = 0  // table doesn't exist yet -> not a duplicate
+        // Duplicate guard. Two policies (see DedupMode):
+        //   Slug    -> identity is the filename: a duplicate is any upload whose
+        //              slug is already loaded.
+        //   Content -> a duplicate is only the SAME slug holding the SAME content
+        //              (same name + same bytes). Same name + different bytes is NOT a
+        //              duplicate -- it falls through and replaces that slug's rows
+        //              (safe HNSW reload). A different filename is always allowed,
+        //              even if the content is identical to an existing document.
+        set tDup = 0, tDupCount = 0, tDupSlug = tBody.slug
+        set tSlugCount = ..CountWhere("PDF = ?", tBody.slug)
+        if (tMode = "Content") {
+            if (tSlugCount > 0) {
+                set tSameCount = ..CountWhere2("PDF = ? AND Hash = ?", tBody.slug, tHash)
+                if (tSameCount > 0) { set tDup = 1, tDupCount = tSlugCount }
+            }
+        } else {
+            if (tSlugCount > 0) { set tDup = 1, tDupCount = tSlugCount }
         }
-        if (tCount > 0) {
+        if (tDup) {
             set tOut = {}
             set tOut.status = "Duplicate"
-            set tOut.slug = tBody.slug
-            set tOut."rows_inserted" = tCount
+            set tOut.mode = tMode
+            set tOut.slug = tDupSlug
+            set tOut."rows_inserted" = tDupCount
             set %response.ContentType = "application/json"
             write tOut.%ToJSON()
             return $$$OK
@@ -180,6 +197,7 @@ ClassMethod RunIngestJob(pJobId As %String)
         set tReq = ##class(RAG2026.Msg.IngestRequest).%New()
         set tReq.Slug = tJob.Slug
         set tReq.PdfBase64 = tJob.PdfBase64
+        set tReq.Hash = ..PdfHash(tJob.PdfBase64)
         $$$ThrowOnError(##class(Ens.Director).CreateBusinessService("Ingest Service", .tService))
         $$$ThrowOnError(tService.ProcessInput(tReq, .tResp))
         do ##class(RAG2026.Data.IngestJob).Mark(pJobId, "Done", tResp.RowsInserted)
@@ -194,6 +212,142 @@ ClassMethod RunIngestJob(pJobId As %String)
 ClassMethod NewJobId() As %String
 {
     quit $TRANSLATE($SYSTEM.Util.CreateGUID(), "-", "")
+}
+
+/// SHA-256 hex digest of the raw PDF bytes carried in a base64 string. Returns
+/// "" when the input is empty or not decodable (treated as "no content hash").
+ClassMethod PdfHash(pB64 As %String) As %String [ Language = python ]
+{
+    import base64, hashlib
+    if not pB64:
+        return ""
+    try:
+        raw = base64.b64decode(pB64)
+    except Exception:
+        return ""
+    return hashlib.sha256(raw).hexdigest()
+}
+
+/// Current duplicate-detection policy: "Slug" (default) or "Content".
+ClassMethod DedupMode() As %String
+{
+    set tMode = $GET(^RAG2026.Config("DedupMode"), "Slug")
+    quit $SELECT(tMode = "Content": "Content", 1: "Slug")
+}
+
+/// COUNT(*) from Embedding.Clinical for a single-parameter WHERE clause, tolerant
+/// of the table (or Hash column) not existing yet -> returns 0.
+ClassMethod CountWhere(pWhere As %String, pArg As %String) As %Integer
+{
+    set tCount = 0
+    try {
+        set tRS = ##class(%SQL.Statement).%ExecDirect(, "SELECT COUNT(*) FROM Embedding.Clinical WHERE " _ pWhere, pArg)
+        if tRS.%Next() { set tCount = +tRS.%GetData(1) }
+    } catch e {
+        set tCount = 0
+    }
+    quit tCount
+}
+
+/// COUNT(*) from Embedding.Clinical for a two-parameter WHERE clause, tolerant of
+/// the table (or Hash column) not existing yet -> returns 0.
+ClassMethod CountWhere2(pWhere As %String, pArg1 As %String, pArg2 As %String) As %Integer
+{
+    set tCount = 0
+    try {
+        set tRS = ##class(%SQL.Statement).%ExecDirect(, "SELECT COUNT(*) FROM Embedding.Clinical WHERE " _ pWhere, pArg1, pArg2)
+        if tRS.%Next() { set tCount = +tRS.%GetData(1) }
+    } catch e {
+        set tCount = 0
+    }
+    quit tCount
+}
+
+/// First column of the first row of a single-parameter query, "" on any failure.
+ClassMethod FirstValue(pSql As %String, pArg As %String) As %String
+{
+    set tVal = ""
+    try {
+        set tRS = ##class(%SQL.Statement).%ExecDirect(, pSql, pArg)
+        if tRS.%Next() { set tVal = tRS.%GetData(1) }
+    } catch e {
+        set tVal = ""
+    }
+    quit tVal
+}
+
+/// GET /ingest/check?slug=<slug>&hash=<sha256hex>
+/// Returns what /ingest would do without actually running it:
+///   {"action":"new"}                         fresh ingest
+///   {"action":"replace","rows":<n>}          slug exists, content differs (Content mode only)
+///   {"action":"duplicate","existing_slug":<s>,"rows":<n>}  blocked
+ClassMethod IngestCheck() As %Status
+{
+    set tSlug = %request.Get("slug")
+    set tHash = %request.Get("hash")
+    set tMode = ..DedupMode()
+    set tOut = {}
+    set tOut.mode = tMode
+
+    if (tMode = "Content") {
+        // Different filename -> always a new document (even if content matches).
+        // Same filename -> duplicate if the content is identical, else a replace.
+        set tSlugRows = ..CountWhere("PDF = ?", tSlug)
+        if (tSlugRows = 0) {
+            set tOut.action = "new"
+        } else {
+            set tSameCount = ..CountWhere2("PDF = ? AND Hash = ?", tSlug, tHash)
+            if (tSameCount > 0) {
+                set tOut.action = "duplicate"
+                set tOut."existing_slug" = tSlug
+                set tOut.rows = tSlugRows
+            } else {
+                set tOut.action = "replace"
+                set tOut.rows = tSlugRows
+            }
+        }
+    } else {
+        // Slug mode: duplicate if slug has rows
+        set tSlugRows = ..CountWhere("PDF = ?", tSlug)
+        if (tSlugRows > 0) {
+            set tOut.action = "duplicate"
+            set tOut."existing_slug" = tSlug
+            set tOut.rows = tSlugRows
+        } else {
+            set tOut.action = "new"
+        }
+    }
+
+    set %response.ContentType = "application/json"
+    write tOut.%ToJSON()
+    quit $$$OK
+}
+
+/// GET /dedup -> {"mode":"Slug|Content"}
+ClassMethod DedupGet() As %Status
+{
+    set tOut = {}
+    set tOut.mode = ..DedupMode()
+    set %response.ContentType = "application/json"
+    write tOut.%ToJSON()
+    quit $$$OK
+}
+
+/// POST /dedup {"mode":"Slug|Content"} -> persists the policy, echoes it back.
+ClassMethod DedupSet() As %Status
+{
+    try {
+        set tBody = {}.%FromJSON(%request.Content)
+        set tMode = $SELECT(tBody.mode = "Content": "Content", 1: "Slug")
+        set ^RAG2026.Config("DedupMode") = tMode
+        set tOut = {}
+        set tOut.mode = tMode
+        set %response.ContentType = "application/json"
+        write tOut.%ToJSON()
+    } catch ex {
+        do ..WriteError(ex)
+    }
+    quit $$$OK
 }
 
 ClassMethod WriteError(pEx As %Exception.AbstractException)

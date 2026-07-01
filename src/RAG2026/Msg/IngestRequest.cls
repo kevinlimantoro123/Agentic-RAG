@@ -10,6 +10,10 @@ Property Slug As %String(MAXLEN = 200);
 /// shared WorkDir instead and leave this empty.)
 Property PdfBase64 As %String(MAXLEN = "");
 
+/// SHA-256 hex digest of the raw PDF bytes. Used for content-based dedup and
+/// stored on every chunk row in Embedding.Clinical.
+Property Hash As %String(MAXLEN = 64);
+
 Storage Default
 {
 <Data name="IngestRequestDefaultData">
@@ -19,6 +23,9 @@ Storage Default
 </Value>
 <Value name="2">
 <Value>PdfBase64</Value>
+</Value>
+<Value name="3">
+<Value>Hash</Value>
 </Value>
 </Data>
 <DefaultData>IngestRequestDefaultData</DefaultData>

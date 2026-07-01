@@ -82,13 +82,20 @@ GET  /csp/rag2026/ingest/status?id=<jobId>
 `POST /ingest` does **not** run the extraction inline (that can take minutes and would
 trip the Web Gateway timeout). Instead it:
 
-1. **Duplicate guard** — if the `slug` already has rows in `Embedding.Clinical`, it
-   returns immediately without queueing:
+1. **Duplicate guard** — if the upload is a duplicate it returns immediately without
+   queueing:
    ```json
-   {"status":"Duplicate","slug":"<slug>","rows_inserted":<n>}
+   {"status":"Duplicate","mode":"Slug|Content","slug":"<existing-slug>","rows_inserted":<n>}
    ```
-   Duplicate detection is **by slug (the PDF filename stem), not by content** — a
-   different filename ingests as a new document even if the contents are identical.
+   The policy is switchable via `GET`/`POST /dedup` `{"mode":"Slug|Content"}` (stored in
+   `^RAG2026.Config("DedupMode")`, default `Slug`):
+   - **Slug** (filename identity, default): a duplicate is any upload whose `slug`
+     already has rows in `Embedding.Clinical`. A renamed-but-identical PDF ingests as a
+     new document; re-using a name is blocked.
+   - **Content** (byte identity): a duplicate is any upload whose SHA-256 content hash
+     already exists (under **any** name). Identical content under a new name is blocked;
+     a **changed** file under an existing name is *not* a duplicate — it falls through
+     and re-loads, replacing that slug's rows (safe HNSW reload, see Notes).
 2. Otherwise it saves a `RAG2026.Data.IngestJob`, kicks off the work in a background
    process (`JOB`), and returns `{"job_id":"...","status":"Queued"}`.
 
