@@ -28,6 +28,11 @@ load_dotenv()
 IRIS_REST_URL = os.getenv("IRIS_REST_URL", "http://localhost:52773/csp/rag2026").rstrip("/")
 IRIS_USER = os.getenv("IRIS_USER", "SuperUser")
 IRIS_PASSWORD = os.getenv("IRIS_PASSWORD", "SYS")
+# The agentic query loop now runs out-of-IRIS in the LangGraph agent service
+# (agent/server.py). Ingest, pdfs, patients, health and dedup still hit IRIS;
+# only /query is served here. Retrieval itself remains in IRIS — the agent calls
+# IRIS's /retrieve internally.
+AGENT_URL = os.getenv("AGENT_URL", "http://localhost:8001").rstrip("/")
 # Only send HTTP Basic auth when a user is configured. When the IRIS web
 # application is set to Unauthenticated (e.g. behind IIS, which rejects the
 # Authorization header), an empty IRIS_USER disables the header entirely.
@@ -48,6 +53,11 @@ def iris_get(path: str, params: dict | None = None, timeout: int = 30):
 
 def iris_post(path: str, payload: dict, timeout: int):
     return requests.post(f"{IRIS_REST_URL}{path}", json=payload, auth=AUTH, timeout=timeout)
+
+
+def agent_post(path: str, payload: dict, timeout: int):
+    """POST to the out-of-IRIS LangGraph agent service (no IRIS auth)."""
+    return requests.post(f"{AGENT_URL}{path}", json=payload, timeout=timeout)
 
 
 def fetch_list(path: str, key: str, params: dict | None = None) -> list:
@@ -313,7 +323,7 @@ with st.sidebar:
 
 # ── Main: ask the agent (via IRIS) ───────────────────────────────────────────
 st.title("🤖 Ask the agent")
-st.caption("GPT-4o runs the tool loop inside IRIS — patient records (HNSW) + guidelines.")
+st.caption("GPT-4o runs the LangGraph tool - patient records (HNSW, served by IRIS) + guidelines.")
 
 question = st.text_input("Enter your clinical question:")
 
@@ -331,11 +341,11 @@ if st.button("Run Agent"):
             "resource": resource or "",
             "top_k": top_k,
         }
-        with st.spinner("🤖 Agent reasoning in IRIS…"):
+        with st.spinner("🤖 Agent reasoning (LangGraph)…"):
             try:
-                resp = iris_post("/query", payload, timeout=180)
+                resp = agent_post("/query", payload, timeout=180)
             except requests.RequestException as e:
-                st.error(f"Request to IRIS failed: {e}")
+                st.error(f"Request to agent service failed: {e}")
                 resp = None
 
         if resp is not None:

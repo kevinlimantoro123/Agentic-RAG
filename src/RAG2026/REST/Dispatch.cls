@@ -21,6 +21,7 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
   <Route Url="/pdfs" Method="GET" Call="Pdfs"/>
   <Route Url="/patients" Method="GET" Call="Patients"/>
   <Route Url="/query" Method="POST" Call="Query"/>
+  <Route Url="/retrieve" Method="POST" Call="Retrieve"/>
   <Route Url="/ingest" Method="POST" Call="Ingest"/>
   <Route Url="/ingest/check" Method="GET" Call="IngestCheck"/>
   <Route Url="/ingest/status" Method="GET" Call="IngestStatus"/>
@@ -103,6 +104,34 @@ ClassMethod Query() As %Status
 
         set %response.ContentType = "application/json"
         write tOut.%ToJSON()
+    } catch ex {
+        do ..WriteError(ex)
+    }
+    quit $$$OK
+}
+
+/// POST /retrieve {"query","pdf","patient","visit_date","top_k"} -> JSON array of
+/// {label,date,text} records. Standalone HTTP front door for the HNSW Retrieve
+/// Operation, used by the out-of-IRIS LangGraph agent as its retrieve tool. The
+/// in-IRIS Agent Process is bypassed; only Retrieve Operation runs.
+ClassMethod Retrieve() As %Status
+{
+    try {
+        set tBody = {}.%FromJSON(%request.Content)
+
+        set tReq = ##class(RAG2026.Msg.RetrieveRequest).%New()
+        set tReq.Query = tBody.query
+        set tReq.Pdf = tBody.pdf
+        set tReq.Patient = tBody.patient
+        set tReq.VisitDate = tBody."visit_date"
+        if (tBody."top_k" '= "") { set tReq.TopK = tBody."top_k" }
+
+        $$$ThrowOnError(##class(Ens.Director).CreateBusinessService("Retrieve Service", .tService))
+        $$$ThrowOnError(tService.ProcessInput(tReq, .tResp))
+
+        set %response.ContentType = "application/json"
+        // ResultsJSON is already the [{label,date,text}] array the LLM consumes.
+        write $select(tResp.ResultsJSON '= "": tResp.ResultsJSON, 1: "[]")
     } catch ex {
         do ..WriteError(ex)
     }

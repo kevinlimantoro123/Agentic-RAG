@@ -11,6 +11,8 @@ XData ProductionDefinition
 
   <Item Name="Query Service" ClassName="RAG2026.BS.QueryService" Category="Query" PoolSize="0" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">
   </Item>
+  <Item Name="Retrieve Service" ClassName="RAG2026.BS.RetrieveService" Category="Query" PoolSize="0" Enabled="true" Foreground="false" Comment="Standalone HTTP entry to Retrieve Operation for the out-of-IRIS LangGraph agent." LogTraceEvents="false" Schedule="">
+  </Item>
   <Item Name="Agent Process" ClassName="RAG2026.BP.AgentProcess" Category="Query" PoolSize="1" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">
     <Setting Target="Host" Name="MaxIterations">10</Setting>
     <Setting Target="Host" Name="DefaultTopK">5</Setting>
