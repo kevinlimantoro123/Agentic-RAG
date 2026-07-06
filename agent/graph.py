@@ -7,7 +7,8 @@ per-request context note are copied verbatim from AgentProcess so behaviour matc
 
 import json
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from . import config
@@ -48,6 +49,11 @@ def _context_note(ctx: dict) -> str:
 # The chat model is stateless, so build it once and reuse across requests.
 _llm = None
 
+# In-memory conversation store, keyed by thread_id. Not durable: history is lost
+# when this process restarts, and it is NOT shared across multiple uvicorn workers
+# (run a single worker, or swap in SqliteSaver/Postgres for either of those).
+_checkpointer = MemorySaver()
+
 
 def _get_llm():
     global _llm
@@ -58,6 +64,7 @@ def _get_llm():
 
 def run_agent(
     question: str,
+    thread_id: str,
     pdf: str = "",
     patient: str = "",
     visit_date: str = "",
@@ -65,8 +72,9 @@ def run_agent(
     top_k: int | None = None,
     max_iterations: int | None = None,
 ) -> dict:
-    """Run the agentic loop for one question. Returns {answer, tool_log} in the
-    same shape the Streamlit frontend already expects from the IRIS /query."""
+    """Run one turn of the agentic loop. Conversation history for `thread_id` is
+    loaded and saved automatically by the checkpointer, so only the new question
+    is sent. Returns {answer, tool_log} in the shape the frontend expects."""
     ctx = {
         "pdf": pdf or "",
         "patient": patient or "",
@@ -75,23 +83,41 @@ def run_agent(
         "top_k": top_k if (top_k and top_k > 0) else config.DEFAULT_TOP_K,
     }
 
+    # The context note goes into the prompt (applied fresh each turn, not stored)
+    # rather than into the messages, so per-turn filters stay current and don't
+    # accumulate a stale system message on every turn.
+    prompt = SYSTEM_PROMPT + "\n\n" + _context_note(ctx)
+
     # Tools are bound to this request's context (arg-merging like AgentProcess.Dispatch).
-    agent = create_react_agent(_get_llm(), make_tools(ctx), prompt=SYSTEM_PROMPT)
+    agent = create_react_agent(
+        _get_llm(), make_tools(ctx), prompt=prompt, checkpointer=_checkpointer
+    )
 
     max_iter = max_iterations if (max_iterations and max_iterations > 0) else config.MAX_ITERATIONS
     # A ReAct turn is two graph steps (agent node + tool node), plus a final agent node.
     recursion_limit = max_iter * 2 + 1
 
+    # Send only the new turn; the checkpointer supplies the prior history.
     result = agent.invoke(
-        {"messages": [SystemMessage(content=_context_note(ctx)), HumanMessage(content=question)]},
-        config={"recursion_limit": recursion_limit},
+        {"messages": [HumanMessage(content=question)]},
+        config={"configurable": {"thread_id": thread_id}, "recursion_limit": recursion_limit},
     )
 
-    messages = result["messages"]
+    messages = result["messages"]  # full accumulated history for this thread
     return {
         "answer": _final_answer(messages),
-        "tool_log": _build_tool_log(messages),
+        # Only this turn's tool calls, not every past turn's.
+        "tool_log": _build_tool_log(_current_turn(messages)),
     }
+
+
+def _current_turn(messages) -> list:
+    """The messages produced by the latest turn: everything from the last user
+    message onward (the checkpointer returns the entire conversation)."""
+    human_idxs = [i for i, m in enumerate(messages) if isinstance(m, HumanMessage)]
+    if not human_idxs:
+        return messages
+    return messages[human_idxs[-1]:]
 
 
 def _final_answer(messages) -> str:

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from uuid import uuid4
 
 import requests
 import streamlit as st
@@ -141,6 +142,10 @@ if "replace_pending" not in st.session_state:
     st.session_state["replace_pending"] = False
 if "replace_payload" not in st.session_state:
     st.session_state["replace_payload"] = None
+# Conversation key for the agent's multi-turn memory. Stable for the session so
+# follow-up questions share history; "New conversation" rotates it for a fresh start.
+if "thread_id" not in st.session_state:
+    st.session_state["thread_id"] = str(uuid4())
 
 def _run_ingest(slug: str, pdf_b64: str):
     """Queue the ingest job and poll until done. Returns True when the caller
@@ -325,6 +330,14 @@ with st.sidebar:
 st.title("🤖 Ask the agent")
 st.caption("GPT-4o runs the LangGraph tool - patient records (HNSW, served by IRIS) + guidelines.")
 
+# Multi-turn: the agent remembers earlier turns in this conversation. Rotate the
+# thread_id to start fresh (e.g. a new patient / unrelated question).
+_cols = st.columns([4, 1])
+_cols[0].caption(f"Conversation: `{st.session_state['thread_id'][:8]}` — follow-up questions share context.")
+if _cols[1].button("🆕 New conversation"):
+    st.session_state["thread_id"] = str(uuid4())
+    st.rerun()
+
 question = st.text_input("Enter your clinical question:")
 
 if st.button("Run Agent"):
@@ -335,6 +348,7 @@ if st.button("Run Agent"):
     else:
         payload = {
             "question": question,
+            "thread_id": st.session_state["thread_id"],
             "pdf": pdf,
             "patient": patient or "",
             "visit_date": visit_date or "",

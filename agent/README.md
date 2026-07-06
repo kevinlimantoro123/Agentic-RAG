@@ -80,11 +80,28 @@ streamlit run frontend/app.py
 ```
 
 Quick check without the UI:
-```bash
-curl -X POST http://localhost:8001/query \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"What is the latest HbA1c and is metformin appropriate?","pdf":"<slug>","resource":"NICE","top_k":5}'
-```
+$body = @{
+  question = "What is the patient history?"
+  pdf      = "rag dummy pdf"
+  resource = "NICE"
+  top_k    = 5
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri "http://localhost:8001/query" -ContentType "application/json" -Body $body
+
+
+## Multi-turn memory
+
+The agent remembers earlier turns within a conversation, keyed by a **`thread_id`**
+sent with each `/query`:
+
+- Reuse the same `thread_id` for follow-ups ("and her kidney function?"); send a
+  new one to start fresh. If `thread_id` is omitted, the turn is a one-shot.
+- The Streamlit UI holds a `thread_id` in session state and exposes a **New
+  conversation** button that rotates it.
+- Storage is `MemorySaver` (in-process): history is **lost on restart** and is **not
+  shared across uvicorn workers** — run a single worker. For durability swap in
+  `SqliteSaver` (`langgraph-checkpoint-sqlite`) or Postgres in `agent/graph.py`.
 
 ## Notes
 
