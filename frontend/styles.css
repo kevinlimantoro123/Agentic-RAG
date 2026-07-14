@@ -128,7 +128,7 @@ hr { border-color: var(--ce-border); }
   flex: 0 1 auto;
   width: fit-content;
   max-width: 80%;
-  margin-left: auto;
+  margin: 0 0 0 auto;   /* override Streamlit's margin:auto — anchor right, grow left */
   background: var(--ce-accent-soft);
   border: 1px solid #cfe6e0;
 }

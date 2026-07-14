@@ -417,11 +417,25 @@ with _meta_r:
     if st.button("New conversation", use_container_width=True):
         st.session_state["thread_id"] = str(uuid4())
         st.session_state["messages"] = []
+        st.session_state["pending"] = False
         st.rerun()
+
+# Chat input pins to the bottom wherever it's called. Record the user's turn
+# now — before rendering — so the empty state gives way to the conversation as
+# soon as the first question is asked (no empty-state-above-bubble flash).
+prompt = st.chat_input("Ask a clinical question about the selected document…")
+if prompt:
+    if not prompt.strip():
+        st.toast("Please enter a question.", icon="⚠️")
+    elif not pdf.strip():
+        st.toast("Select a document in the sidebar before asking.", icon="⚠️")
+    else:
+        st.session_state["messages"].append({"role": "user", "content": prompt})
+        st.session_state["pending"] = True
 
 st.write("")
 
-# Render the conversation so far.
+# Render the conversation, or the empty state when there's nothing yet.
 if st.session_state["messages"]:
     for _msg in st.session_state["messages"]:
         _render_message(_msg)
@@ -451,51 +465,39 @@ else:
         unsafe_allow_html=True,
     )
 
-# ── Chat input (pinned to the bottom) ────────────────────────────────────────
-prompt = st.chat_input("Ask a clinical question about the selected document…")
+# Answer a freshly asked question (its user turn is the last message).
+if st.session_state.pop("pending", False):
+    payload = {
+        "question": st.session_state["messages"][-1]["content"],
+        "thread_id": st.session_state["thread_id"],
+        "pdf": pdf,
+        "patient": patient or "",
+        "visit_date": visit_date or "",
+        "resource": resource or "",
+        "top_k": top_k,
+    }
+    with st.chat_message("assistant"):
+        err = None
+        with st.spinner("Reasoning over records and guidelines…"):
+            try:
+                resp = agent_post("/query", payload, timeout=180)
+            except requests.RequestException as e:
+                resp = None
+                err = f"Request to agent service failed: {e}"
+        if resp is not None and resp.status_code != 200:
+            err = f"Query failed ({resp.status_code}): {resp.text}"
 
-if prompt:
-    if not prompt.strip():
-        st.toast("Please enter a question.", icon="⚠️")
-    elif not pdf.strip():
-        st.toast("Select a document in the sidebar before asking.", icon="⚠️")
-    else:
-        user_msg = {"role": "user", "content": prompt}
-        st.session_state["messages"].append(user_msg)
-        _render_message(user_msg)
-
-        payload = {
-            "question": prompt,
-            "thread_id": st.session_state["thread_id"],
-            "pdf": pdf,
-            "patient": patient or "",
-            "visit_date": visit_date or "",
-            "resource": resource or "",
-            "top_k": top_k,
-        }
-
-        with st.chat_message("assistant"):
-            err = None
-            with st.spinner("Reasoning over records and guidelines…"):
-                try:
-                    resp = agent_post("/query", payload, timeout=180)
-                except requests.RequestException as e:
-                    resp = None
-                    err = f"Request to agent service failed: {e}"
-            if resp is not None and resp.status_code != 200:
-                err = f"Query failed ({resp.status_code}): {resp.text}"
-
-            if err:
-                st.error(err)
-                st.session_state["messages"].append(
-                    {"role": "assistant", "content": f"⚠️ {err}", "tool_log": []}
-                )
-            else:
-                data = resp.json()
-                answer = data.get("answer", "")
-                tool_log = data.get("tool_log", [])
-                st.markdown(answer)
-                _render_tool_log(tool_log)
-                st.session_state["messages"].append(
-                    {"role": "assistant", "content": answer, "tool_log": tool_log}
-                )
+        if err:
+            st.error(err)
+            st.session_state["messages"].append(
+                {"role": "assistant", "content": f"⚠️ {err}", "tool_log": []}
+            )
+        else:
+            data = resp.json()
+            answer = data.get("answer", "")
+            tool_log = data.get("tool_log", [])
+            st.markdown(answer)
+            _render_tool_log(tool_log)
+            st.session_state["messages"].append(
+                {"role": "assistant", "content": answer, "tool_log": tool_log}
+            )
