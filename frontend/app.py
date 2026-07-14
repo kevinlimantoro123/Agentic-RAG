@@ -395,7 +395,11 @@ st.markdown(
         background: #0c6558; border-color: #0c6558; color: #fff;
       }
 
-      /* Chat input — full-width box, no floating gray band or drop shadow. */
+      /* Chat input.
+         DOM (BaseWeb): stChatInput > flex-row > [ [data-baseweb=textarea], submitButton ]
+         The gray fill lives on the baseweb input; we move the "bar" onto the text field
+         wrapper only and let the send button sit OUTSIDE it as its own accent button. */
+
       /* Bottom bar blends into the page (masks scrolled text) with no border/shadow. */
       [data-testid="stBottom"] {
         background: var(--ce-bg);
@@ -408,37 +412,67 @@ st.markdown(
         border: none;
         box-shadow: none;
       }
-      /* The outer element is the visible input box; inner container is stripped. */
+
+      /* Root + inner flex row: no box of their own, just lay out with a gap. */
       [data-testid="stChatInput"] {
-        background: var(--ce-surface);
-        border: 1px solid var(--ce-border);
-        border-radius: 14px;
+        display: flex !important;
+        align-items: center;
+        gap: .55rem;
+        background: transparent;
+        border: none;
         box-shadow: none;
-        padding: .1rem .25rem;
-        transition: border-color .15s ease, box-shadow .15s ease;
+        padding: 0;
       }
-      [data-testid="stChatInput"] > div,
-      [data-testid="stChatInputContainer"] {
+      [data-testid="stChatInput"] > div {
+        display: flex !important;
+        align-items: center;
+        gap: .55rem;
+        flex: 1 1 auto;
         background: transparent;
         border: none;
         box-shadow: none;
       }
-      [data-testid="stChatInput"]:focus-within {
-        border-color: var(--ce-accent);
-        box-shadow: 0 0 0 3px rgba(15,122,108,.14);
+
+      /* The text field wrapper IS the bar. */
+      [data-testid="stChatInput"] [data-baseweb="textarea"] {
+        flex: 1 1 auto;
+        background: var(--ce-surface) !important;
+        border: 1px solid var(--ce-border) !important;
+        border-radius: 14px !important;
+        box-shadow: none !important;
+        transition: border-color .15s ease, box-shadow .15s ease;
+      }
+      [data-testid="stChatInput"] [data-baseweb="textarea"]:focus-within {
+        border-color: var(--ce-accent) !important;
+        box-shadow: 0 0 0 3px rgba(15,122,108,.14) !important;
+      }
+      /* Kill the inner gray fill/border so only the wrapper shows. */
+      [data-testid="stChatInput"] [data-baseweb="base-input"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
       }
       [data-testid="stChatInput"] textarea {
-        background: transparent;
+        background: transparent !important;
+        padding: .7rem .95rem !important;   /* drop the reserved send-icon space */
         font-size: 1rem;
-        min-height: 2.75rem;
       }
       [data-testid="stChatInput"] textarea::placeholder { color: #9aa5b2; }
-      /* Send button: accent icon, soft hover */
-      [data-testid="stChatInputSubmitButton"] { color: var(--ce-accent); }
-      [data-testid="stChatInputSubmitButton"] svg { fill: var(--ce-accent); }
-      [data-testid="stChatInputSubmitButton"]:hover { background: var(--ce-accent-soft); }
-      [data-testid="stChatInputSubmitButton"]:disabled,
-      [data-testid="stChatInputSubmitButton"]:disabled svg { color: #b3bcc7; fill: #b3bcc7; }
+
+      /* Send button: standalone accent button, outside the bar. */
+      [data-testid="stChatInputSubmitButton"] {
+        position: static !important;
+        flex: 0 0 auto;
+        margin: 0 !important;
+        width: 2.9rem; height: 2.9rem;
+        border-radius: 12px !important;
+        background: var(--ce-accent) !important;
+        border: none !important;
+      }
+      [data-testid="stChatInputSubmitButton"] svg { fill: #fff !important; color: #fff !important; }
+      [data-testid="stChatInputSubmitButton"]:hover { background: #0c6558 !important; }
+      [data-testid="stChatInputSubmitButton"]:disabled { background: #cdd5df !important; }
+      [data-testid="stChatInputSubmitButton"]:disabled svg { fill: #fff !important; }
     </style>
     """,
     unsafe_allow_html=True,
