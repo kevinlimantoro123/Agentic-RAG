@@ -395,31 +395,45 @@ st.markdown(
         background: #0c6558; border-color: #0c6558; color: #fff;
       }
 
-      /* Chat input — style the real input box, neutralize the wrapper so there's
-         no double border. `div:has(> textarea)` is the box holding the textarea. */
-      [data-testid="stBottom"] > div { background: transparent; }
-      [data-testid="stChatInput"] {
+      /* Chat input — full-width box, no floating gray band or drop shadow. */
+      /* Bottom bar blends into the page (masks scrolled text) with no border/shadow. */
+      [data-testid="stBottom"] {
+        background: var(--ce-bg);
+        border: none;
+        box-shadow: none;
+      }
+      [data-testid="stBottom"] > div,
+      [data-testid="stBottomBlockContainer"] {
         background: transparent;
         border: none;
         box-shadow: none;
-        padding: 0;
       }
-      [data-testid="stChatInput"] div:has(> textarea),
-      [data-testid="stChatInputContainer"] {
+      /* The outer element is the visible input box; inner container is stripped. */
+      [data-testid="stChatInput"] {
+        background: var(--ce-surface);
         border: 1px solid var(--ce-border);
         border-radius: 14px;
-        background: var(--ce-surface);
-        box-shadow: 0 10px 26px rgba(16,24,40,.11);
+        box-shadow: none;
+        padding: .1rem .25rem;
         transition: border-color .15s ease, box-shadow .15s ease;
       }
-      [data-testid="stChatInput"] div:has(> textarea):focus-within,
-      [data-testid="stChatInputContainer"]:focus-within {
-        border-color: var(--ce-accent);
-        box-shadow: 0 0 0 3px rgba(15,122,108,.16), 0 10px 26px rgba(16,24,40,.11);
+      [data-testid="stChatInput"] > div,
+      [data-testid="stChatInputContainer"] {
+        background: transparent;
+        border: none;
+        box-shadow: none;
       }
-      [data-testid="stChatInput"] textarea { font-size: .97rem; }
+      [data-testid="stChatInput"]:focus-within {
+        border-color: var(--ce-accent);
+        box-shadow: 0 0 0 3px rgba(15,122,108,.14);
+      }
+      [data-testid="stChatInput"] textarea {
+        background: transparent;
+        font-size: 1rem;
+        min-height: 2.75rem;
+      }
       [data-testid="stChatInput"] textarea::placeholder { color: #9aa5b2; }
-      /* Send button: accent icon, soft hover — no forced circle */
+      /* Send button: accent icon, soft hover */
       [data-testid="stChatInputSubmitButton"] { color: var(--ce-accent); }
       [data-testid="stChatInputSubmitButton"] svg { fill: var(--ce-accent); }
       [data-testid="stChatInputSubmitButton"]:hover { background: var(--ce-accent-soft); }
