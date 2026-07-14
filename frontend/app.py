@@ -228,7 +228,11 @@ st.markdown(
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                      Helvetica, Arial, sans-serif;
       }
-      [data-testid="stAppViewContainer"] { background: var(--ce-bg); }
+      [data-testid="stAppViewContainer"] {
+        background:
+          radial-gradient(900px 360px at 50% -40px, rgba(15,122,108,.13), transparent 72%),
+          var(--ce-bg);
+      }
       [data-testid="stHeader"] { background: transparent; }
       .block-container {
         max-width: 880px;
@@ -261,13 +265,37 @@ st.markdown(
         margin: 1.25rem 0 .35rem;
       }
 
-      /* App header */
-      .app-header { padding: .1rem 0 .2rem; }
-      .app-header-title {
-        font-size: 1.5rem; font-weight: 700; color: var(--ce-ink);
-        letter-spacing: -.01em;
+      /* App header — gradient hero */
+      .app-header {
+        position: relative;
+        overflow: hidden;
+        background: linear-gradient(135deg, #0f7a6c 0%, #0b5f54 55%, #14907a 100%);
+        border-radius: 18px;
+        padding: 1.5rem 1.6rem 1.55rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 16px 34px rgba(12,101,88,.26);
       }
-      .app-header-sub { font-size: .92rem; color: var(--ce-ink-soft); margin-top: .1rem; }
+      .app-header::after {
+        content: "";
+        position: absolute; right: -70px; top: -70px;
+        width: 240px; height: 240px;
+        background: radial-gradient(circle, rgba(255,255,255,.16), transparent 70%);
+      }
+      .app-header-badge {
+        display: inline-block; position: relative;
+        font-size: .67rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+        color: #d7f2ec; background: rgba(255,255,255,.15);
+        padding: .28rem .62rem; border-radius: 999px; margin-bottom: .6rem;
+      }
+      .app-header-title {
+        position: relative;
+        font-size: 1.75rem; font-weight: 800; color: #fff;
+        letter-spacing: -.015em; line-height: 1.1;
+      }
+      .app-header-sub {
+        position: relative;
+        font-size: .95rem; color: rgba(255,255,255,.86); margin-top: .25rem;
+      }
       .conv-meta {
         font-size: .78rem; color: var(--ce-ink-soft);
         display: flex; align-items: center; height: 100%;
@@ -319,13 +347,31 @@ st.markdown(
 
       /* Empty state */
       .ce-empty {
-        border: 1px dashed var(--ce-border);
+        border: 1px solid var(--ce-border);
+        border-top: 3px solid var(--ce-accent);
         border-radius: 16px;
-        background: var(--ce-surface);
-        padding: 1.6rem 1.5rem;
+        background: linear-gradient(180deg, #ffffff 0%, #f5faf9 100%);
+        padding: 1.5rem 1.6rem 1.4rem;
         color: var(--ce-ink-soft);
+        box-shadow: 0 6px 20px rgba(16,24,40,.05);
       }
-      .ce-empty h4 { color: var(--ce-ink); margin: 0 0 .4rem; font-size: 1.02rem; }
+      .ce-empty h4 { color: var(--ce-ink); margin: 0 0 .35rem; font-size: 1.12rem; }
+      .ce-empty p { margin: 0 0 1.05rem; line-height: 1.5; }
+      .ce-features { display: flex; gap: .7rem; flex-wrap: wrap; }
+      .ce-feature {
+        flex: 1 1 150px;
+        background: var(--ce-surface);
+        border: 1px solid var(--ce-border);
+        border-radius: 12px;
+        padding: .8rem .9rem;
+      }
+      .ce-feature-ic {
+        width: 30px; height: 30px; border-radius: 8px; margin-bottom: .5rem;
+        display: flex; align-items: center; justify-content: center;
+        background: var(--ce-accent-soft); color: var(--ce-accent); font-size: 1.05rem;
+      }
+      .ce-feature b { display: block; color: var(--ce-ink); font-size: .88rem; margin-bottom: .1rem; }
+      .ce-feature span { font-size: .8rem; color: var(--ce-ink-soft); line-height: 1.35; }
 
       /* Buttons */
       .stButton > button {
@@ -349,38 +395,36 @@ st.markdown(
         background: #0c6558; border-color: #0c6558; color: #fff;
       }
 
-      /* Chat input */
+      /* Chat input — style the real input box, neutralize the wrapper so there's
+         no double border. `div:has(> textarea)` is the box holding the textarea. */
       [data-testid="stBottom"] > div { background: transparent; }
       [data-testid="stChatInput"] {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        padding: 0;
+      }
+      [data-testid="stChatInput"] div:has(> textarea),
+      [data-testid="stChatInputContainer"] {
         border: 1px solid var(--ce-border);
-        border-radius: 999px;
+        border-radius: 14px;
         background: var(--ce-surface);
-        box-shadow: 0 4px 18px rgba(16,24,40,.10);
-        padding: .15rem .35rem .15rem .55rem;
+        box-shadow: 0 10px 26px rgba(16,24,40,.11);
         transition: border-color .15s ease, box-shadow .15s ease;
       }
-      [data-testid="stChatInput"]:focus-within {
+      [data-testid="stChatInput"] div:has(> textarea):focus-within,
+      [data-testid="stChatInputContainer"]:focus-within {
         border-color: var(--ce-accent);
-        box-shadow: 0 0 0 3px rgba(15,122,108,.14), 0 4px 18px rgba(16,24,40,.10);
+        box-shadow: 0 0 0 3px rgba(15,122,108,.16), 0 10px 26px rgba(16,24,40,.11);
       }
-      [data-testid="stChatInput"] textarea {
-        font-size: .97rem;
-        padding-top: .55rem;
-        padding-bottom: .55rem;
-      }
+      [data-testid="stChatInput"] textarea { font-size: .97rem; }
       [data-testid="stChatInput"] textarea::placeholder { color: #9aa5b2; }
-      /* Send button in accent */
-      [data-testid="stChatInput"] button {
-        background: var(--ce-accent);
-        border-radius: 50%;
-        color: #fff;
-      }
-      [data-testid="stChatInput"] button:hover { background: #0c6558; }
-      [data-testid="stChatInput"] button svg { color: #fff; fill: #fff; }
-      [data-testid="stChatInput"] button:disabled {
-        background: transparent;
-      }
-      [data-testid="stChatInput"] button:disabled svg { color: #b3bcc7; fill: #b3bcc7; }
+      /* Send button: accent icon, soft hover — no forced circle */
+      [data-testid="stChatInputSubmitButton"] { color: var(--ce-accent); }
+      [data-testid="stChatInputSubmitButton"] svg { fill: var(--ce-accent); }
+      [data-testid="stChatInputSubmitButton"]:hover { background: var(--ce-accent-soft); }
+      [data-testid="stChatInputSubmitButton"]:disabled,
+      [data-testid="stChatInputSubmitButton"]:disabled svg { color: #b3bcc7; fill: #b3bcc7; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -572,6 +616,7 @@ with st.sidebar:
 st.markdown(
     """
     <div class="app-header">
+      <div class="app-header-badge">Clinical RAG · InterSystems IRIS</div>
       <div class="app-header-title">Agentic RAG</div>
       <div class="app-header-sub">Grounded answers from patient records and clinical guidelines.</div>
     </div>
@@ -591,7 +636,7 @@ with _meta_r:
         st.session_state["messages"] = []
         st.rerun()
 
-st.divider()
+st.write("")
 
 # Render the conversation so far.
 if st.session_state["messages"]:
@@ -602,8 +647,22 @@ else:
         """
         <div class="ce-empty">
           <h4>Start a conversation</h4>
-          Pick a document in the sidebar, then ask a clinical question. Follow-up
-          questions keep the context of this conversation until you start a new one.
+          <p>Pick a document in the sidebar, then ask a clinical question. Follow-up
+          questions keep the context of this conversation until you start a new one.</p>
+          <div class="ce-features">
+            <div class="ce-feature">
+              <div class="ce-feature-ic">◈</div>
+              <b>Grounded</b><span>Answers cite the patient's own records.</span>
+            </div>
+            <div class="ce-feature">
+              <div class="ce-feature-ic">✦</div>
+              <b>Guideline-aware</b><span>Draws on NICE, FDA, CDC and more.</span>
+            </div>
+            <div class="ce-feature">
+              <div class="ce-feature-ic">↺</div>
+              <b>Remembers</b><span>Follow-ups keep this conversation's context.</span>
+            </div>
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
