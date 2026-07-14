@@ -24,6 +24,7 @@ Method OnRequest(pRequest As RAG2026.Msg.IngestRequest, Output pResponse As RAG2
         set tLoad = ##class(RAG2026.Msg.LoadRequest).%New()
         set tLoad.Slug = pRequest.Slug
         set tLoad.ChunksPath = tPrepResp.ChunksPath
+        set tLoad.Hash = pRequest.Hash
         $$$ThrowOnError(..SendRequestSync("Load Operation", tLoad, .tLoadResp))
         set pResponse.RowsInserted = tLoadResp.RowsInserted
     } catch ex {
