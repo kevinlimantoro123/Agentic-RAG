@@ -3,8 +3,11 @@ Include Ensemble
 /// HTTP front door for the production. Register this class as the dispatch class of
 /// a web application (e.g. /csp/rag2026). Each handler builds a typed message and
 /// pushes it into the production via an adapterless business service.
-/// 
-///   POST /query    {"question","pdf","patient","visit_date","resource","top_k"}
+///
+/// The agentic query loop runs out-of-IRIS in the LangGraph agent (agent/); this
+/// front door serves retrieval and ingest only.
+///
+///   POST /retrieve {"query","pdf","patient","visit_date","top_k"}
 ///   POST /ingest   {"slug","pdf_base64"}
 ///   GET  /health
 ///   GET  /dedup    -> {"mode":"Slug|Content"}
@@ -20,7 +23,6 @@ XData UrlMap [ XMLNamespace = "http://www.intersystems.com/urlmap" ]
   <Route Url="/health" Method="GET" Call="Health"/>
   <Route Url="/pdfs" Method="GET" Call="Pdfs"/>
   <Route Url="/patients" Method="GET" Call="Patients"/>
-  <Route Url="/query" Method="POST" Call="Query"/>
   <Route Url="/retrieve" Method="POST" Call="Retrieve"/>
   <Route Url="/ingest" Method="POST" Call="Ingest"/>
   <Route Url="/ingest/check" Method="GET" Call="IngestCheck"/>
@@ -82,38 +84,9 @@ ClassMethod Patients() As %Status
     quit $$$OK
 }
 
-ClassMethod Query() As %Status
-{
-    try {
-        set tBody = {}.%FromJSON(%request.Content)
-
-        set tReq = ##class(RAG2026.Msg.QueryRequest).%New()
-        set tReq.Question = tBody.question
-        set tReq.Pdf = tBody.pdf
-        set tReq.Patient = tBody.patient
-        set tReq.VisitDate = tBody."visit_date"
-        set tReq.Resource = tBody.resource
-        if (tBody."top_k" '= "") { set tReq.TopK = tBody."top_k" }
-
-        $$$ThrowOnError(##class(Ens.Director).CreateBusinessService("Query Service", .tService))
-        $$$ThrowOnError(tService.ProcessInput(tReq, .tResp))
-
-        set tOut = {}
-        set tOut.answer = tResp.Answer
-        if (tResp.ToolLog '= "") { set tOut."tool_log" = [].%FromJSON(tResp.ToolLog) }
-
-        set %response.ContentType = "application/json"
-        write tOut.%ToJSON()
-    } catch ex {
-        do ..WriteError(ex)
-    }
-    quit $$$OK
-}
-
 /// POST /retrieve {"query","pdf","patient","visit_date","top_k"} -> JSON array of
-/// {label,date,text} records. Standalone HTTP front door for the HNSW Retrieve
-/// Operation, used by the out-of-IRIS LangGraph agent as its retrieve tool. The
-/// in-IRIS Agent Process is bypassed; only Retrieve Operation runs.
+/// {label,date,text} records. HTTP front door for the HNSW Retrieve Operation,
+/// used by the out-of-IRIS LangGraph agent as its retrieve tool.
 ClassMethod Retrieve() As %Status
 {
     try {

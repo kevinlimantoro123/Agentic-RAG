@@ -9,23 +9,10 @@ XData ProductionDefinition
   <Description>Agentic clinical RAG orchestrated by IRIS Interoperability (OpenAI + HNSW).</Description>
   <ActorPoolSize>2</ActorPoolSize>
 
-  <Item Name="Query Service" ClassName="RAG2026.BS.QueryService" Category="Query" PoolSize="0" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">
-  </Item>
   <Item Name="Retrieve Service" ClassName="RAG2026.BS.RetrieveService" Category="Query" PoolSize="0" Enabled="true" Foreground="false" Comment="Standalone HTTP entry to Retrieve Operation for the out-of-IRIS LangGraph agent." LogTraceEvents="false" Schedule="">
-  </Item>
-  <Item Name="Agent Process" ClassName="RAG2026.BP.AgentProcess" Category="Query" PoolSize="1" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">
-    <Setting Target="Host" Name="MaxIterations">10</Setting>
-    <Setting Target="Host" Name="DefaultTopK">5</Setting>
-  </Item>
-  <Item Name="LLM Operation" ClassName="RAG2026.BO.LLMOperation" Category="Query" PoolSize="1" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">
-    <Setting Target="Host" Name="Model">gpt-4o</Setting>
-    <Setting Target="Host" Name="APIKeyCredentials">OpenAIKey</Setting>
   </Item>
   <Item Name="Retrieve Operation" ClassName="RAG2026.BO.RetrieveOperation" Category="Query" PoolSize="1" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">
     <Setting Target="Host" Name="EmbeddingConfig">openai-embedding-config</Setting>
-  </Item>
-  <Item Name="Guideline Operation" ClassName="RAG2026.BO.GuidelineOperation" Category="Query" PoolSize="1" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">
-    <Setting Target="Host" Name="TavilyCredentials">TavilyKey</Setting>
   </Item>
 
   <Item Name="Ingest Service" ClassName="RAG2026.BS.IngestService" Category="Ingest" PoolSize="0" Enabled="true" Foreground="false" Comment="" LogTraceEvents="false" Schedule="">

@@ -2,10 +2,9 @@ Include Ensemble
 
 /// Adapterless business service for the standalone retrieval path. Invoked
 /// programmatically by RAG2026.REST.Dispatch via
-/// Ens.Director.CreateBusinessService("Retrieve Service"), so an out-of-IRIS
-/// agent (the LangGraph agent) can reach the HNSW Retrieve Operation over HTTP
-/// without going through the in-IRIS Agent Process. Mirrors RAG2026.BS.QueryService;
-/// forwards the request synchronously to Retrieve Operation.
+/// Ens.Director.CreateBusinessService("Retrieve Service"), so the out-of-IRIS
+/// LangGraph agent can reach the HNSW Retrieve Operation over HTTP. Forwards the
+/// request synchronously to Retrieve Operation.
 Class RAG2026.BS.RetrieveService Extends Ens.BusinessService
 {
 
