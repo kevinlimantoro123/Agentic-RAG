@@ -50,9 +50,6 @@ SIDECAR_STRATEGY = os.getenv("SIDECAR_STRATEGY", "fast")
 SIDECAR_HEALTH = f"http://{SIDECAR_HOST}:{SIDECAR_PORT}/health"
 AUTOSTART_SIDECAR = os.getenv("AUTOSTART_SIDECAR", "1") == "1"
 
-USER_AVATAR = "🧑‍⚕️"
-ASSISTANT_AVATAR = "🩺"
-
 _TOOL_LABELS = {
     "retrieve_patient_records": "Patient records",
     "guideline_search": "Clinical guidelines",
@@ -207,7 +204,7 @@ def _run_ingest(slug: str, pdf_b64: str):
 
 # ── Page setup + theme ───────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Clinical Evidence Assistant",
+    page_title="Agentic RAG",
     page_icon="✚",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -248,19 +245,15 @@ st.markdown(
       [data-testid="stSidebar"] .block-container { padding-top: 1.1rem; }
 
       .side-brand {
-        display: flex; align-items: center; gap: .6rem;
         padding: .2rem 0 1rem;
         border-bottom: 1px solid var(--ce-border);
         margin-bottom: .4rem;
       }
-      .side-brand-mark {
-        width: 34px; height: 34px; border-radius: 9px;
-        background: var(--ce-accent); color: #fff;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 1.25rem; font-weight: 700;
+      .side-brand-title { font-size: 1.02rem; font-weight: 700; color: var(--ce-ink); line-height: 1.15; }
+      .side-brand-sub {
+        font-size: .72rem; font-weight: 600; letter-spacing: .04em;
+        text-transform: uppercase; color: var(--ce-accent);
       }
-      .side-brand-title { font-size: .98rem; font-weight: 700; color: var(--ce-ink); line-height: 1.1; }
-      .side-brand-sub { font-size: .74rem; color: var(--ce-ink-soft); }
 
       .side-section {
         font-size: .70rem; font-weight: 700; letter-spacing: .09em;
@@ -286,16 +279,43 @@ st.markdown(
 
       hr { border-color: var(--ce-border); }
 
-      /* Chat messages as clean cards */
+      /* Chat messages — clean, no avatars */
+      [data-testid="stChatMessageAvatarUser"],
+      [data-testid="stChatMessageAvatarAssistant"],
+      [data-testid="stChatMessage"] > [data-testid="stChatMessageAvatarCustom"] {
+        display: none;
+      }
       [data-testid="stChatMessage"] {
+        gap: 0;
+        padding: 0;
+        margin-bottom: .55rem;
+        background: transparent;
+      }
+      /* Inner content becomes the bubble */
+      [data-testid="stChatMessage"] > [data-testid="stChatMessageContent"],
+      [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
+        border-radius: 14px;
+        padding: .8rem 1.05rem;
+      }
+      /* Assistant: full-width white card */
+      [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarAssistant"])
+        [data-testid="stChatMessageContent"] {
         background: var(--ce-surface);
         border: 1px solid var(--ce-border);
-        border-radius: 14px;
-        padding: .85rem 1.05rem;
-        margin-bottom: .7rem;
         box-shadow: 0 1px 2px rgba(16,24,40,.04);
       }
-      [data-testid="stChatMessage"] p { color: var(--ce-ink); }
+      /* User: tinted bubble, pushed to the right */
+      [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+        justify-content: flex-end;
+      }
+      [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
+        [data-testid="stChatMessageContent"] {
+        background: var(--ce-accent-soft);
+        border: 1px solid #cfe6e0;
+        max-width: 82%;
+      }
+      [data-testid="stChatMessage"] p { color: var(--ce-ink); margin-bottom: .3rem; }
+      [data-testid="stChatMessage"] p:last-child { margin-bottom: 0; }
 
       /* Empty state */
       .ce-empty {
@@ -306,12 +326,6 @@ st.markdown(
         color: var(--ce-ink-soft);
       }
       .ce-empty h4 { color: var(--ce-ink); margin: 0 0 .4rem; font-size: 1.02rem; }
-      .ce-chip {
-        display: inline-block; margin: .25rem .35rem 0 0;
-        padding: .3rem .7rem; border-radius: 999px;
-        background: var(--ce-accent-soft); color: var(--ce-accent);
-        font-size: .82rem; font-weight: 500;
-      }
 
       /* Buttons */
       .stButton > button {
@@ -339,11 +353,34 @@ st.markdown(
       [data-testid="stBottom"] > div { background: transparent; }
       [data-testid="stChatInput"] {
         border: 1px solid var(--ce-border);
-        border-radius: 12px;
+        border-radius: 999px;
         background: var(--ce-surface);
-        box-shadow: 0 2px 10px rgba(16,24,40,.06);
+        box-shadow: 0 4px 18px rgba(16,24,40,.10);
+        padding: .15rem .35rem .15rem .55rem;
+        transition: border-color .15s ease, box-shadow .15s ease;
       }
-      [data-testid="stChatInput"] textarea { font-size: .96rem; }
+      [data-testid="stChatInput"]:focus-within {
+        border-color: var(--ce-accent);
+        box-shadow: 0 0 0 3px rgba(15,122,108,.14), 0 4px 18px rgba(16,24,40,.10);
+      }
+      [data-testid="stChatInput"] textarea {
+        font-size: .97rem;
+        padding-top: .55rem;
+        padding-bottom: .55rem;
+      }
+      [data-testid="stChatInput"] textarea::placeholder { color: #9aa5b2; }
+      /* Send button in accent */
+      [data-testid="stChatInput"] button {
+        background: var(--ce-accent);
+        border-radius: 50%;
+        color: #fff;
+      }
+      [data-testid="stChatInput"] button:hover { background: #0c6558; }
+      [data-testid="stChatInput"] button svg { color: #fff; fill: #fff; }
+      [data-testid="stChatInput"] button:disabled {
+        background: transparent;
+      }
+      [data-testid="stChatInput"] button:disabled svg { color: #b3bcc7; fill: #b3bcc7; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -400,8 +437,7 @@ def _render_tool_log(tool_log: list):
 
 
 def _render_message(msg: dict):
-    avatar = USER_AVATAR if msg["role"] == "user" else ASSISTANT_AVATAR
-    with st.chat_message(msg["role"], avatar=avatar):
+    with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg["role"] == "assistant" and msg.get("tool_log") is not None:
             _render_tool_log(msg["tool_log"])
@@ -412,11 +448,8 @@ with st.sidebar:
     st.markdown(
         """
         <div class="side-brand">
-          <div class="side-brand-mark">✚</div>
-          <div>
-            <div class="side-brand-title">Clinical Evidence</div>
-            <div class="side-brand-sub">Assistant</div>
-          </div>
+          <div class="side-brand-title">Agentic RAG</div>
+          <div class="side-brand-sub">Clinical assistant</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -539,7 +572,7 @@ with st.sidebar:
 st.markdown(
     """
     <div class="app-header">
-      <div class="app-header-title">Clinical Evidence Assistant</div>
+      <div class="app-header-title">Agentic RAG</div>
       <div class="app-header-sub">Grounded answers from patient records and clinical guidelines.</div>
     </div>
     """,
@@ -571,11 +604,6 @@ else:
           <h4>Start a conversation</h4>
           Pick a document in the sidebar, then ask a clinical question. Follow-up
           questions keep the context of this conversation until you start a new one.
-          <div style="margin-top:.8rem">
-            <span class="ce-chip">Summarise this patient's recent visits</span>
-            <span class="ce-chip">What does NICE recommend for their HbA1c?</span>
-            <span class="ce-chip">Any medication interactions to flag?</span>
-          </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -604,7 +632,7 @@ if prompt:
             "top_k": top_k,
         }
 
-        with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+        with st.chat_message("assistant"):
             with st.spinner("Reasoning over records and guidelines…"):
                 try:
                     resp = agent_post("/query", payload, timeout=180)
