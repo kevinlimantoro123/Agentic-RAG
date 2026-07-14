@@ -129,10 +129,11 @@ hr { border-color: var(--ce-border); }
   width: fit-content;
   max-width: 80%;
   margin: 0 0 0 auto;   /* override Streamlit's margin:auto — anchor right, grow left */
+  padding: 1rem 1.35rem; /* bigger green bubble */
   background: var(--ce-accent-soft);
   border: 1px solid #cfe6e0;
 }
-[data-testid="stChatMessage"] p { color: var(--ce-ink); margin-bottom: .3rem; }
+[data-testid="stChatMessage"] p { color: var(--ce-ink); margin-top: 0; margin-bottom: .3rem; }
 [data-testid="stChatMessage"] p:last-child { margin-bottom: 0; }
 
 /* Empty state */
