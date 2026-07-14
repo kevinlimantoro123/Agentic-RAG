@@ -287,16 +287,15 @@ with st.sidebar:
     st.markdown("<div class='side-section'>Documents</div>", unsafe_allow_html=True)
     uploaded = st.file_uploader("Upload clinical PDF", type="pdf", label_visibility="collapsed")
 
-    # Reset the pending-replace state when a different file is uploaded.
-    if uploaded is not None:
-        _uploaded_slug = Path(uploaded.name).stem
-        if st.session_state["replace_payload"] is not None:
-            if st.session_state["replace_payload"].get("slug") != _uploaded_slug:
-                st.session_state["replace_pending"] = False
-                st.session_state["replace_payload"] = None
-
     if uploaded is not None:
         slug = Path(uploaded.name).stem
+
+        # Reset the pending-replace state when a different file is uploaded.
+        if (st.session_state["replace_payload"] is not None
+                and st.session_state["replace_payload"].get("slug") != slug):
+            st.session_state["replace_pending"] = False
+            st.session_state["replace_payload"] = None
+
         st.caption(f"Slug: `{slug}`")
 
         if st.session_state["replace_pending"]:
@@ -476,20 +475,17 @@ if prompt:
         }
 
         with st.chat_message("assistant"):
+            err = None
             with st.spinner("Reasoning over records and guidelines…"):
                 try:
                     resp = agent_post("/query", payload, timeout=180)
                 except requests.RequestException as e:
                     resp = None
                     err = f"Request to agent service failed: {e}"
-
-            if resp is None:
-                st.error(err)
-                st.session_state["messages"].append(
-                    {"role": "assistant", "content": f"⚠️ {err}", "tool_log": []}
-                )
-            elif resp.status_code != 200:
+            if resp is not None and resp.status_code != 200:
                 err = f"Query failed ({resp.status_code}): {resp.text}"
+
+            if err:
                 st.error(err)
                 st.session_state["messages"].append(
                     {"role": "assistant", "content": f"⚠️ {err}", "tool_log": []}

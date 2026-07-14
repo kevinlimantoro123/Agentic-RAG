@@ -12,7 +12,7 @@
 }
 
 /* Base type + canvas */
-html, body, [data-testid="stAppViewContainer"], [class*="css"] {
+html, body, [data-testid="stAppViewContainer"] {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                Helvetica, Arial, sans-serif;
 }
@@ -97,8 +97,7 @@ hr { border-color: var(--ce-border); }
 
 /* Chat messages — clean, no avatars */
 [data-testid="stChatMessageAvatarUser"],
-[data-testid="stChatMessageAvatarAssistant"],
-[data-testid="stChatMessage"] > [data-testid="stChatMessageAvatarCustom"] {
+[data-testid="stChatMessageAvatarAssistant"] {
   display: none;
 }
 [data-testid="stChatMessage"] {
@@ -108,7 +107,6 @@ hr { border-color: var(--ce-border); }
   background: transparent;
 }
 /* Inner content becomes the bubble */
-[data-testid="stChatMessage"] > [data-testid="stChatMessageContent"],
 [data-testid="stChatMessage"] [data-testid="stChatMessageContent"] {
   border-radius: 14px;
   padding: .8rem 1.05rem;
@@ -120,15 +118,19 @@ hr { border-color: var(--ce-border); }
   border: 1px solid var(--ce-border);
   box-shadow: 0 1px 2px rgba(16,24,40,.04);
 }
-/* User: tinted bubble, pushed to the right */
+/* User: tinted bubble that hugs its text and sits on the right */
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+  flex-direction: row;
   justify-content: flex-end;
 }
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"])
   [data-testid="stChatMessageContent"] {
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 80%;
+  margin-left: auto;
   background: var(--ce-accent-soft);
   border: 1px solid #cfe6e0;
-  max-width: 82%;
 }
 [data-testid="stChatMessage"] p { color: var(--ce-ink); margin-bottom: .3rem; }
 [data-testid="stChatMessage"] p:last-child { margin-bottom: 0; }
