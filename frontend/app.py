@@ -235,7 +235,7 @@ st.markdown(
       }
       [data-testid="stHeader"] { background: transparent; }
       .block-container {
-        max-width: 880px;
+        max-width: 980px;
         padding-top: 1.4rem;
         padding-bottom: 7rem;
       }
@@ -412,6 +412,13 @@ st.markdown(
         border: none;
         box-shadow: none;
       }
+      /* Match the chat area to the content width so the bar runs full length. */
+      [data-testid="stBottomBlockContainer"] {
+        max-width: 980px;
+        margin: 0 auto;
+        padding-left: 1rem;
+        padding-right: 1rem;
+      }
 
       /* Root + inner flex row: no box of their own, just lay out with a gap. */
       [data-testid="stChatInput"] {
@@ -436,6 +443,9 @@ st.markdown(
       /* The text field wrapper IS the bar. */
       [data-testid="stChatInput"] [data-baseweb="textarea"] {
         flex: 1 1 auto;
+        display: flex;
+        align-items: center;
+        min-height: 3.5rem;
         background: var(--ce-surface) !important;
         border: 1px solid var(--ce-border) !important;
         border-radius: 14px !important;
@@ -454,8 +464,9 @@ st.markdown(
       }
       [data-testid="stChatInput"] textarea {
         background: transparent !important;
-        padding: .7rem .95rem !important;   /* drop the reserved send-icon space */
-        font-size: 1rem;
+        padding: .85rem 1.05rem !important;   /* drop the reserved send-icon space */
+        font-size: 1.02rem;
+        min-height: 3.5rem;
       }
       [data-testid="stChatInput"] textarea::placeholder { color: #9aa5b2; }
 
@@ -464,7 +475,7 @@ st.markdown(
         position: static !important;
         flex: 0 0 auto;
         margin: 0 !important;
-        width: 2.9rem; height: 2.9rem;
+        width: 3.5rem; height: 3.5rem;
         border-radius: 12px !important;
         background: var(--ce-accent) !important;
         border: none !important;
